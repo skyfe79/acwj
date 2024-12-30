@@ -1,29 +1,21 @@
-# Part 2: Introduction to Parsing
+# 2부: 파싱의 기초
 
-In this part of our compiler writing journey, I'm going to introduce the
-basics of a parser. As I mentioned in the first part, the job of the parser
-is to recognise the syntax and structural elements of the input and ensure
-that they conform to the *grammar* of the language.
+컴파일러 제작 여정의 이번 파트에서는 파서(parser)의 기초를 다룬다. 1부에서 언급했듯이, 파서의 주요 임무는 입력된 코드의 구문과 구조적 요소를 인식하고, 이들이 프로그래밍 언어의 *문법*(grammar)을 준수하는지 확인하는 것이다.
 
-We already have several language elements that we can scan in, i.e. our tokens:
+현재 우리는 다음과 같은 언어 요소들을 토큰으로 스캔할 수 있다:
 
- + the four basic maths operators: `*`, `/`, `+` and `-`
- + decimal whole numbers which have 1 or more digits `0` .. `9`
++ 4개의 기본 수학 연산자: `*`, `/`, `+`, `-`
++ 1개 이상의 숫자(`0`..`9`)로 구성된 10진수 정수
 
-Now let's define a grammar for the language that our parser will recognise.
+이제 파서가 인식할 언어의 문법을 정의해보자.
 
-## BNF: Backus-Naur Form
+## BNF: 배커스-나우르 표기법(Backus-Naur Form)의 이해
 
-You will come across the use of
-[BNF ](https://en.wikipedia.org/wiki/Backus%E2%80%93Naur_form)
-at some point if you get into dealing
-with computer languages. I will just introduce enough of the BNF syntax
-here to express the grammar we want to recognise.
+컴퓨터 프로그래밍 언어를 다루다 보면 [BNF(배커스-나우르 표기법)](https://en.wikipedia.org/wiki/Backus%E2%80%93Naur_form)를 접하게 된다. 여기서는 우리가 원하는 문법을 표현하는 데 필요한 BNF 문법의 기본 개념만 다룬다.
 
-We want a grammar to express maths expressions with whole numbers. Here is
-the BNF description of the grammar:
+이제 정수를 사용한 수식을 표현하는 문법을 만들어보자. BNF로 표현한 문법은 다음과 같다:
 
-```
+```bnf
 expression: number
           | expression '*' expression
           | expression '/' expression
@@ -35,152 +27,115 @@ number:  T_INTLIT
          ;
 ```
 
-The vertical bars separate options in the grammar, so the above says:
+수직 막대(`|`)는 문법의 여러 선택지를 구분한다. 위 문법은 다음과 같은 의미를 가진다:
 
-  + An expression could be just a number, or
-  + An expression is two expressions separated by a '*' token, or
-  + An expression is two expressions separated by a '/' token, or
-  + An expression is two expressions separated by a '+' token, or
-  + An expression is two expressions separated by a '-' token
-  + A number is always a T_INTLIT token
+- expression(수식)은 다음 중 하나가 될 수 있다:
+  - 하나의 숫자
+  - 두 수식을 '*' 기호로 연결한 것
+  - 두 수식을 '/' 기호로 연결한 것
+  - 두 수식을 '+' 기호로 연결한 것
+  - 두 수식을 '-' 기호로 연결한 것
+- number(숫자)는 항상 T_INTLIT 토큰으로 표현한다
 
-It should be pretty obvious that the BNF definition of the grammar is
-*recursive*: an expression is defined by referencing other expressions.
-But there is a way to *bottom-out" the recursion: when an expression
-turns out to be a number, this is always a T_INTLIT token and thus
-not recursive.
+이 BNF 정의에서 주목할 점은 재귀적 구조다. 수식은 다른 수식을 참조하면서 정의된다. 하지만 재귀는 무한히 계속되지 않는다. 수식이 숫자가 되는 순간, 그 숫자는 T_INTLIT 토큰으로 표현되어 재귀가 종료된다.
 
-In BNF, we say that "expression" and "number" are *non-terminal* symbols, as
-they are produced by rules in the grammar. However, T_INTLIT is a *terminal*
-symbol as it is not defined by any rule. Instead, it is an already-recognised
-token in the language. Similarly, the four maths operator tokens are
-terminal symbols.
+BNF에서 사용하는 주요 용어는 다음과 같다:
+
+- "expression"과 "number"는 '비단말 기호'다. 문법 규칙으로 생성되는 요소이기 때문이다.
+- T_INTLIT는 '단말 기호'다. 문법 규칙으로 정의되지 않고 이미 인식된 토큰이기 때문이다.
+- 마찬가지로 네 개의 수학 연산자 토큰도 단말 기호에 속한다.
  
-## Recursive Descent Parsing
+## 재귀 하향 파싱
 
-Given that the grammar for our language is recursive, it makes sense for
-us to try and parse it recursively. What we need to do is to read in a
-token, then *look ahead* to the next token. Based on what the next token
-is, we can then decide what path we need to take to parse the input.
-This may require us to recursively call a function that has already been
-called.
+우리가 만들 언어의 문법이 재귀적 구조를 가지므로, 재귀적 방식으로 파싱하는 것이 합리적이다. 파싱 과정은 먼저 토큰을 읽고 *다음 토큰을 미리 확인*하는 방식으로 진행한다. 다음 토큰의 종류에 따라 입력을 파싱하기 위한 경로를 결정할 수 있다. 이 과정에서 이미 호출된 함수를 다시 재귀적으로 호출해야 할 수도 있다.
 
-In our case, the first token in any expression will be a number and this
-may be followed by maths operator. After that there may only
-be a single number, or there may be the start of a whole new expression.
-How can we parse this recursively?
+우리의 경우, 모든 수식은 숫자로 시작하며 그 뒤에 수학 연산자가 올 수 있다. 연산자 뒤에는 단일 숫자만 올 수도 있고, 완전히 새로운 수식이 시작될 수도 있다. 이런 구조를 어떻게 재귀적으로 파싱할 수 있을까?
 
-We can write pseudo-code that looks like this:
+다음과 같은 의사코드로 표현할 수 있다:
 
-```
-function expression() {
-  Scan and check the first token is a number. Error if it's not
-  Get the next token
-  If we have reached the end of the input, return, i.e. base case
-
-  Otherwise, call expression()
-}
+```python
+def expression():
+    # 첫 번째 토큰이 숫자인지 확인한다. 숫자가 아니면 오류를 발생시킨다
+    # 다음 토큰을 가져온다
+    # 입력의 끝에 도달했다면 반환한다 (기본 조건)
+    # 그렇지 않다면 expression() 함수를 다시 호출한다
 ```
 
-Let's run this function on the input `2 + 3 - 5 T_EOF` where `T_EOF`
-is a token that reflects the end of the input. I will number each
-call to `expression()`.
+이제 이 함수를 `2 + 3 - 5 T_EOF` 입력에 적용해보자. 여기서 `T_EOF`는 입력의 끝을 나타내는 토큰이다. 각 `expression()` 호출에 번호를 매겨 살펴보자.
 
-```
+```python
 expression0:
-  Scan in the 2, it's a number
-  Get next token, +, which isn't T_EOF
-  Call expression()
+    2를 스캔한다 (숫자임을 확인)
+    다음 토큰 +를 가져온다 (T_EOF가 아님)
+    expression() 호출
 
-    expression1:
-      Scan in the 3, it's a number
-      Get next token, -, which isn't T_EOF
-      Call expression()
+        expression1:
+            3을 스캔한다 (숫자임을 확인)
+            다음 토큰 -를 가져온다 (T_EOF가 아님)
+            expression() 호출
 
-        expression2:
-          Scan in the 5, it's a number
-          Get next token, T_EOF, so return from expression2
+                expression2:
+                    5를 스캔한다 (숫자임을 확인)
+                    다음 토큰 T_EOF를 가져온다, expression2에서 반환
 
-      return from expression1
-  return from expression0
+            expression1에서 반환
+    expression0에서 반환
 ```
 
-Yes, the function was able to recursively parse the input
-`2 + 3 - 5 T_EOF`.
+이처럼 함수가 `2 + 3 - 5 T_EOF` 입력을 재귀적으로 성공적으로 파싱했다.
 
-Of course, we haven't done anything with the
-input, but that isn't the job of the parser. The parser's job is
-to *recognise* the input, and warn of any syntax errors. Someone
-else is going to do the *semantic analysis* of the input, i.e. to
-understand and perform the meaning of this input.
+물론 아직 입력에 대해 어떤 처리도 하지 않았지만, 그것은 파서의 역할이 아니다. 파서의 주요 임무는 입력을 *인식*하고 문법 오류를 경고하는 것이다. 입력의 *의미 분석*, 즉 입력의 의미를 이해하고 실행하는 것은 다른 부분의 역할이다.
 
-> Later on, you will see that this isn't actually true. It often makes
-  sense to intertwine the syntax analysis and semantic analysis.
+> 나중에 이것이 실제로는 완전히 사실이 아님을 알게 될 것이다. 종종 문법 분석과 의미 분석을 함께 수행하는 것이 더 합리적이다.
 
-## Abstract Syntax Trees
+## 추상 구문 트리
 
-To do the semantic analysis, we need code that either interprets
-the recognised input, or translates it to another format, e.g.
-assembly code. In this part of the journey, we will build an
-interpreter for the input. But to get there, we are first going to
-convert the input into an
-[abstract syntax tree](https://en.wikipedia.org/wiki/Abstract_syntax_tree),
-also known as an AST.
+의미 분석을 수행하려면 인식된 입력을 해석하거나 어셈블리 코드와 같은 다른 형식으로 변환하는 코드가 필요하다. 이번 여정에서는 입력을 해석하는 인터프리터를 구축할 것이다. 하지만 그 전에 먼저 입력을 추상 구문 트리(Abstract Syntax Tree, AST)로 변환하는 과정을 살펴볼 것이다.
 
-I highly recommend you read this short explanation of ASTs:
+AST에 대한 이해를 돕기 위해 다음 글을 읽어보기를 강력히 권장한다:
 
- + [Leveling Up One’s Parsing Game With ASTs](https://medium.com/basecs/leveling-up-ones-parsing-game-with-asts-d7a6fc2400ff)
-   by Vaidehi Joshi
++ Vaidehi Joshi가 작성한 [AST로 구문 분석 능력 향상하기](https://medium.com/basecs/leveling-up-ones-parsing-game-with-asts-d7a6fc2400ff)
 
-It's well written and really help to explain the purpose and structure of ASTs.
-Don't worry, I'll be here when you get back.
+이 글은 AST의 목적과 구조를 명확하게 설명하는 잘 쓰인 글이다. 읽고 오시면 계속 설명을 이어가도록 하겠다.
 
-The structure of each node in the AST that we will build is described in
-`defs.h`:
+우리가 구축할 AST의 각 노드 구조는 `defs.h`에 다음과 같이 정의되어 있다:
 
 ```c
-// AST node types
+// AST 노드 타입
 enum {
   A_ADD, A_SUBTRACT, A_MULTIPLY, A_DIVIDE, A_INTLIT
 };
 
-// Abstract Syntax Tree structure
+// 추상 구문 트리 구조체
 struct ASTnode {
-  int op;                               // "Operation" to be performed on this tree
-  struct ASTnode *left;                 // Left and right child trees
+  int op;                               // 이 트리에서 수행할 "연산"
+  struct ASTnode *left;                 // 왼쪽과 오른쪽 자식 트리
   struct ASTnode *right;
-  int intvalue;                         // For A_INTLIT, the integer value
+  int intvalue;                         // A_INTLIT일 경우의 정수값
 };
 ```
 
-Some AST nodes, like those with `op` values `A_ADD` and `A_SUBTRACT`
-have two child ASTs that are pointed to by `left` and `right`. Later on,
-we will add or subtract the values of the sub-trees.
+`A_ADD`와 `A_SUBTRACT` 같은 `op` 값을 가진 AST 노드들은 `left`와 `right`가 가리키는 두 개의 자식 AST를 가진다. 이후 단계에서 이 하위 트리들의 값을 더하거나 뺄 것이다.
 
-Alternatively, an AST node with the `op` value A_INTLIT represents
-an integer value. It has no sub-tree children, just a value in the
-`intvalue` field.
+반면 `A_INTLIT`이라는 `op` 값을 가진 AST 노드는 정수값을 나타낸다. 이 노드는 자식 트리를 가지지 않으며, 단지 `intvalue` 필드에 값을 저장한다.
 
-## Building AST Nodes and Trees
+## AST 노드와 트리 구축하기
 
-The code in `tree.c` has the functions to build ASTs. The most
-general function, `mkastnode()`, takes values for all four
-fields in an AST node. It allocates the node, populates the field
-values and returns a pointer to the node:
+`tree.c` 파일은 AST(추상 구문 트리)를 구축하는 함수들을 포함한다. 가장 일반적인 함수인 `mkastnode()`는 AST 노드의 네 가지 필드 값을 모두 받는다. 이 함수는 새로운 노드를 할당하고, 필드 값을 채운 다음 노드의 포인터를 반환한다.
 
 ```c
-// Build and return a generic AST node
+// 일반적인 AST 노드를 생성하고 반환한다
 struct ASTnode *mkastnode(int op, struct ASTnode *left,
-                          struct ASTnode *right, int intvalue) {
+                         struct ASTnode *right, int intvalue) {
   struct ASTnode *n;
 
-  // Malloc a new ASTnode
+  // 새로운 AST 노드에 메모리를 할당한다
   n = (struct ASTnode *) malloc(sizeof(struct ASTnode));
   if (n == NULL) {
-    fprintf(stderr, "Unable to malloc in mkastnode()\n");
+    fprintf(stderr, "mkastnode()에서 메모리 할당 실패\n");
     exit(1);
   }
-  // Copy in the field values and return it
+  // 필드 값들을 복사하고 노드를 반환한다
   n->op = op;
   n->left = left;
   n->right = right;
@@ -189,34 +144,29 @@ struct ASTnode *mkastnode(int op, struct ASTnode *left,
 }
 ```
 
-Given this, we can write more specific functions that make a leaf AST
-node (i.e. one with no children), and make an AST node with a single child:
+이 기본 함수를 토대로, 자식 노드가 없는 리프 AST 노드를 만드는 함수와 단일 자식을 가진 AST 노드를 만드는 더 구체적인 함수들을 작성할 수 있다.
 
 ```c
-// Make an AST leaf node
+// AST 리프 노드를 생성한다
 struct ASTnode *mkastleaf(int op, int intvalue) {
   return (mkastnode(op, NULL, NULL, intvalue));
 }
 
-// Make a unary AST node: only one child
+// 단항 AST 노드를 생성한다: 자식이 하나만 있다
 struct ASTnode *mkastunary(int op, struct ASTnode *left, int intvalue) {
   return (mkastnode(op, left, NULL, intvalue));
+}
 ```
 
-## Purpose of the AST
+## AST의 목적
 
-We are going to use an AST to store each expression that we recognise
-so that, later on, we can traverse it recursively to calculate the
-final value of the expression. We do want to deal with the precedence of the 
-maths operators. Here is an example.
+AST(추상 구문 트리)는 프로그램이 인식한 각각의 표현식을 저장하는 자료구조다. 이를 통해 나중에 재귀적으로 트리를 순회하면서 표현식의 최종 값을 계산할 수 있다. 이때 수학 연산자의 우선순위를 고려해야 한다. 아래 예제를 통해 자세히 살펴보자.
 
-Consider the expression `2 * 3 + 4 * 5`. Now, multiplication has higher
-precedence that addition. Therefore, we want to *bind* the multiplication
-operands together and perform these operations before we do the addition.
+`2 * 3 + 4 * 5` 라는 수식을 예로 들어보자. 곱셈은 덧셈보다 우선순위가 높다. 따라서 곱셈 연산자와 피연산자를 먼저 묶어서 계산한 후에 덧셈을 수행해야 한다.
 
-If we generated the AST tree to look like this:
+AST 트리를 다음과 같이 구성하면:
 
-```
+```text
           +
          / \
         /   \
@@ -226,20 +176,14 @@ If we generated the AST tree to look like this:
     2   3   4   5
 ```
 
-then, when traversing the tree, we would perform `2*3` first, then `4*5`.
-Once we have these results, we can then pass them up to the root of the
-tree to perform the addition.
+트리를 순회할 때 `2*3`을 먼저 계산하고, 그 다음 `4*5`를 계산한다. 이 두 결과값을 트리의 루트로 전달하여 최종적으로 덧셈을 수행하게 된다.
 
-## A Naive Expression Parser
+## 단순한 수식 파서 구현하기
 
-Now, we could re-use the token values from our scanner as the AST node
-operation values, but I like to keep the concept of tokens and AST nodes
-separate. So, to start with, I'm going to have a function to map
-the token values into AST node operation values. This, along with the
-rest of the parser, is in `expr.c`:
+스캐너에서 생성한 토큰 값을 AST 노드의 연산자 값으로 그대로 사용할 수도 있다. 하지만 토큰과 AST 노드의 개념을 분리하는 것이 좋다. 우선 토큰 값을 AST 노드의 연산자 값으로 변환하는 함수부터 구현한다. 이 함수를 포함한 파서의 나머지 부분은 `expr.c` 파일에 있다:
 
 ```c
-// Convert a token into an AST operation.
+// 토큰을 AST 연산자로 변환한다
 int arithop(int tok) {
   switch (tok) {
     case T_PLUS:
@@ -257,22 +201,19 @@ int arithop(int tok) {
 }
 ```
 
-The default statement in the switch statement fires when we can't convert
-the given token into an AST node type. It's going to form part of the
-syntax checking in our parser.
+switch 문의 default 구문은 주어진 토큰을 AST 노드 타입으로 변환할 수 없을 때 실행된다. 이는 파서의 문법 검사 기능 중 일부가 된다.
 
-We need a function to check that the next token is an integer literal,
-and to build an AST node to hold the literal value. Here it is:
+다음 토큰이 정수 리터럴인지 확인하고, 리터럴 값을 저장할 AST 노드를 생성하는 함수가 필요하다. 다음과 같이 구현한다:
 
 ```c
-// Parse a primary factor and return an
-// AST node representing it.
+// 최소 단위 요소(primary factor)를 파싱하고
+// 이를 표현하는 AST 노드를 반환한다
 static struct ASTnode *primary(void) {
   struct ASTnode *n;
 
-  // For an INTLIT token, make a leaf AST node for it
-  // and scan in the next token. Otherwise, a syntax error
-  // for any other token type.
+  // INTLIT 토큰의 경우, 이를 위한 리프 AST 노드를 만들고
+  // 다음 토큰을 읽는다. 다른 토큰 타입의 경우
+  // 문법 오류로 처리한다
   switch (Token.token) {
     case T_INTLIT:
       n = mkastleaf(A_INTLIT, Token.intvalue);
@@ -285,57 +226,51 @@ static struct ASTnode *primary(void) {
 }
 ```
 
-This assumes that there is a global variable `Token`, and that it
-already has the most recent token scanned in from the input. In
-`data.h`:
+이 코드는 전역 변수 `Token`이 존재하고, 이미 입력에서 가장 최근의 토큰을 읽었다고 가정한다. `data.h` 파일에 다음과 같이 선언한다:
 
 ```c
 extern_ struct token    Token;
 ```
 
-and in `main()`:
+그리고 `main()` 함수에서는:
 
 ```c
-  scan(&Token);                 // Get the first token from the input
-  n = binexpr();                // Parse the expression in the file
+  scan(&Token);                 // 입력에서 첫 번째 토큰을 읽는다
+  n = binexpr();               // 파일의 수식을 파싱한다
 ```
 
-Now we can write the code for the parser:
+이제 파서의 핵심 코드를 작성할 수 있다:
 
 ```c
-// Return an AST tree whose root is a binary operator
+// 이진 연산자를 루트로 하는 AST 트리를 반환한다
 struct ASTnode *binexpr(void) {
   struct ASTnode *n, *left, *right;
   int nodetype;
 
-  // Get the integer literal on the left.
-  // Fetch the next token at the same time.
+  // 왼쪽의 정수 리터럴을 가져온다
+  // 동시에 다음 토큰도 읽는다
   left = primary();
 
-  // If no tokens left, return just the left node
+  // 더 이상 토큰이 없으면 왼쪽 노드만 반환한다
   if (Token.token == T_EOF)
     return (left);
 
-  // Convert the token into a node type
+  // 토큰을 노드 타입으로 변환한다
   nodetype = arithop(Token.token);
 
-  // Get the next token in
+  // 다음 토큰을 읽는다
   scan(&Token);
 
-  // Recursively get the right-hand tree
+  // 재귀적으로 오른쪽 트리를 구성한다
   right = binexpr();
 
-  // Now build a tree with both sub-trees
+  // 두 서브트리로 새로운 트리를 만든다
   n = mkastnode(nodetype, left, right, 0);
   return (n);
 }
 ```
 
-Notice that nowhere in this naive parser code is there anything to
-deal with different operator precedence. As it stands, the code treats
-all operators as having equal precedence. If you follow the code as
-it parses the expression `2 * 3 + 4 * 5`, you will see that it
-builds this AST:
+이 간단한 파서 코드에는 연산자 우선순위를 처리하는 부분이 전혀 없다. 현재 상태에서는 모든 연산자의 우선순위가 동일하다고 가정한다. `2 * 3 + 4 * 5`라는 수식을 파싱할 때 코드가 어떻게 동작하는지 따라가보면, 다음과 같은 AST를 만든다:
 
 ```
      *
@@ -347,27 +282,22 @@ builds this AST:
        4   5
 ```
 
-This is definitely not correct. It will multiply `4*5` to get 20,
-then do `3+20` to get 23 instead of doing `2*3` to get 6.
+이는 명백히 잘못된 결과다. `4*5`를 먼저 계산해서 20을 얻고, 그 다음 `3+20`을 계산해서 23을 얻게 된다. 올바른 계산 순서는 `2*3`을 먼저 계산해서 6을 얻는 것이다.
 
-So why did I do this? I wanted to show you that writing a simple parser
-is easy, but getting it to also do the semantic analysis is harder.
+그렇다면 왜 이렇게 구현했을까? 간단한 파서를 작성하는 것은 쉽지만, 의미 분석(semantic analysis)까지 올바르게 수행하는 것은 더 어렵다는 점을 보여주기 위해서다.
 
-## Interpreting the Tree
+## 트리 해석하기
 
-Now that we have our (incorrect) AST tree, let's write some code to
-interpret it. Again, we are going to write recursive code to traverse
-the tree. Here's the pseudo-code:
+(틀린) AST 트리가 준비되었으니, 이제 이 트리를 해석하는 코드를 작성해보자. 여기서도 트리를 순회하는 재귀적 코드를 작성할 것이다. 다음은 의사 코드다:
 
-```
-interpretTree:
-  First, interpret the left-hand sub-tree and get its value
-  Then, interpret the right-hand sub-tree and get its value
-  Perform the operation in the node at the root of our tree
-  on the two sub-tree values, and return this value
+```python
+트리해석:
+  먼저, 왼쪽 하위 트리를 해석하여 그 값을 구한다
+  다음, 오른쪽 하위 트리를 해석하여 그 값을 구한다
+  트리의 루트에 있는 연산자로 두 하위 트리의 값을 계산하고, 그 결과를 반환한다
 ```
 
-Going back to the correct AST tree:
+올바른 AST 트리로 돌아가보면:
 
 ```
           +
@@ -379,39 +309,38 @@ Going back to the correct AST tree:
     2   3   4   5
 ```
 
-the call structure would look like:
+호출 구조는 다음과 같을 것이다:
 
+```python
+interpretTree0(+ 연산이 있는 트리):
+  interpretTree1(* 연산이 있는 왼쪽 트리) 호출:
+     interpretTree2(2가 있는 트리) 호출:
+       수학 연산 없음, 2 반환
+     interpretTree3(3이 있는 트리) 호출:
+       수학 연산 없음, 3 반환
+     2 * 3 실행, 6 반환
+
+  interpretTree1(* 연산이 있는 오른쪽 트리) 호출:
+     interpretTree2(4가 있는 트리) 호출:
+       수학 연산 없음, 4 반환
+     interpretTree3(5가 있는 트리) 호출:
+       수학 연산 없음, 5 반환
+     4 * 5 실행, 20 반환
+
+  6 + 20 실행, 26 반환
 ```
-interpretTree0(tree with +):
-  Call interpretTree1(left tree with *):
-     Call interpretTree2(tree with 2):
-       No maths operation, just return 2
-     Call interpretTree3(tree with 3):
-       No maths operation, just return 3
-     Perform 2 * 3, return 6
 
-  Call interpretTree1(right tree with *):
-     Call interpretTree2(tree with 4):
-       No maths operation, just return 4
-     Call interpretTree3(tree with 5):
-       No maths operation, just return 5
-     Perform 4 * 5, return 20
+## 추상 구문 트리 해석 코드
 
-  Perform 6 + 20, return 26
-```
-
-## Code to Interpret the Tree
-
-This is in `interp.c` and follows the above pseudo-code:
+이 코드는 `interp.c` 파일에 구현되어 있으며, 앞서 설명한 의사코드를 따라 작성되었다.
 
 ```c
-// Given an AST, interpret the
-// operators in it and return
-// a final value.
+// AST를 입력으로 받아 연산자를 해석하고
+// 최종 결과값을 반환한다
 int interpretAST(struct ASTnode *n) {
   int leftval, rightval;
 
-  // Get the left and right sub-tree values
+  // 좌측과 우측 서브트리의 값을 계산한다
   if (n->left)
     leftval = interpretAST(n->left);
   if (n->right)
@@ -434,38 +363,30 @@ int interpretAST(struct ASTnode *n) {
   }
 }
 ```
-   
-Again, the default statement in the switch statement fires when we can't 
-interpret the AST node type. It's going to form part of the
-sematic checking in our parser.
 
-## Building the Parser
+switch 문의 default 구문은 해석할 수 없는 AST 노드 타입을 만났을 때 실행된다. 이는 파서의 의미 검사(semantic checking) 부분에서 중요한 역할을 한다.
 
-There is some other code here and the, like the call to the interpreter
-in `main()`:
+## 파서 구현하기
+
+`main()` 함수에서 인터프리터를 호출하는 다음과 같은 코드가 있다:
 
 ```c
-  scan(&Token);                 // Get the first token from the input
-  n = binexpr();                // Parse the expression in the file
-  printf("%d\n", interpretAST(n));      // Calculate the final result
+  scan(&Token);                 // 입력에서 첫 번째 토큰을 가져온다
+  n = binexpr();               // 파일의 수식을 파싱한다 
+  printf("%d\n", interpretAST(n));      // 최종 결과를 계산한다
   exit(0);
 ```
 
-You can now build the parser by doing:
+아래 명령어로 파서를 빌드할 수 있다:
 
-```
+```bash
 $ make
 cc -o parser -g expr.c interp.c main.c scan.c tree.c
 ```
 
-I've provided several input files for you to test the parser on, but 
-of course you can create your own. Remember, the calculated results
-are incorrect, but the parser should detect input errors like
-consecutive numbers, consecutive operators, and a number missing at the end
-of the input. I've also added some debugging code to the interpreter so
-you can see which AST tree nodes get evaluated in which order:
+파서를 테스트할 수 있는 여러 입력 파일을 제공했지만, 직접 새로운 파일을 만들 수도 있다. 계산된 결과는 정확하지 않을 수 있지만, 파서는 연속된 숫자나 연산자, 입력 끝에 숫자가 없는 경우 등의 입력 오류를 감지한다. 또한 인터프리터에 디버깅 코드를 추가하여 AST 트리 노드가 어떤 순서로 평가되는지 확인할 수 있다:
 
-```
+```bash
 $ cat input01
 2 + 3 * 5 - 8 / 3
 
@@ -488,7 +409,7 @@ $ cat input02
 08 / 3
 
 $ ./parser input02
-int 13
+int 13 
 int 6
 int 4
 int 5
@@ -523,18 +444,12 @@ $ ./parser input05
 Unrecognised character a on line 1
 ```
 
-## Conclusion and What's Next
+## 결론 및 다음 단계
 
-A parser recognises the grammar of the language and checks that the
-input to the compiler conforms to this grammar. If it doesn't, the parser
-should print out an error message. As our expression grammar is
-recursive, we have chosen to write a recursive descent parser to
-recognise our expressions.
+파서는 프로그래밍 언어의 문법을 인식하고 컴파일러에 입력된 코드가 이 문법을 준수하는지 검사한다. 문법에 맞지 않는 코드를 발견하면 오류 메시지를 출력한다. 우리가 다루는 표현식 문법은 재귀적 구조를 가지고 있으므로, 이를 인식하기 위해 재귀 하향 파서를 구현하기로 결정했다.
 
-Right now the parser works, as shown by the above output, but it fails
-to get the semantics of the input right. In other words, it doesn't
-calculate the correct value of the expressions.
+현재 파서는 위 출력에서 보듯이 정상적으로 작동한다. 하지만 입력된 코드의 의미를 정확하게 해석하지는 못한다. 다시 말해, 표현식의 정확한 계산 값을 도출하지 못하는 상태이다.
 
-In the next part of our compiler writing journey, we will modify
-the parser so that it also does the semantic analysis of the
-expressions to get the right maths results. [Next step](../03_Precedence/Readme.md)
+컴파일러 개발 여정의 다음 단계에서는 파서를 개선하여 표현식의 의미 분석 기능을 추가할 것이다. 이를 통해 수학적 연산의 정확한 결과를 얻을 수 있게 된다. 
+
+[다음 단계](../03_Precedence/Readme.md)
