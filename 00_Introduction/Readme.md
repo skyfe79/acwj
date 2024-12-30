@@ -1,159 +1,107 @@
-# Part 0: Introduction
+# Part 0: 들어가며
 
-I've decided to go on a compiler writing journey. In the past I've written some
-[assemblers](https://github.com/DoctorWkt/pdp7-unix/blob/master/tools/as7), and
-I've written a [simple compiler](https://github.com/DoctorWkt/h-compiler)
-for a typeless language. But I've never written a compiler that can compile
-itself. So that's where I'm headed on this journey.
+컴파일러 개발이라는 새로운 여정을 시작하기로 결심했다. 지금까지 나는 몇 가지 [어셈블러](https://github.com/DoctorWkt/pdp7-unix/blob/master/tools/as7)를 만들었고, [간단한 컴파일러](https://github.com/DoctorWkt/h-compiler)도 개발해 타입이 없는 언어를 위한 컴파일러를 구현한 경험이 있다. 하지만 자기 자신을 컴파일할 수 있는 컴파일러는 아직 만들어보지 못했다. 이번 여정의 목표가 바로 이것이다.
 
-As part of the process, I'm going to write up my work so that others can
-follow along. This will also help me to clarify my thoughts and ideas.
-Hopefully you, and I, will find this useful!
+개발 과정에서 얻은 경험과 지식을 문서화하여 다른 개발자들도 함께 배울 수 있는 기회를 제공하고자 한다. 이는 내 생각과 아이디어를 정리하는 데도 큰 도움이 될 것이다. 이 여정이 독자들과 나 모두에게 의미 있는 경험이 되기를 바란다!
 
-## Goals of the Journey
+## 개발 여정의 목표
 
-Here are my goals, and non-goals, for the journey:
+다음은 이 여정에서 달성하고자 하는 목표와 제외할 사항들이다:
 
- + To write a self-compiling compiler. I think that if the compiler can
-   compile itself, it gets to call itself a *real* compiler.
- + To target at least one real hardware platform. I've seen a few compilers
-   that generate code for hypothetical machines. I want my compiler to
-   work on real hardware. Also, if possible, I want to write the compiler
-   so that it can support multiple backends for different hardware platforms.
- + Practical before research. There's a whole lot of research in the area of
-   compilers. I want to start from absolute zero on this journey, so I'll
-   tend to go for a practical approach and not a theory-heavy approach. That
-   said, there will be times when I'll need to introduce (and implement) some
-   theory-based stuff.
- + Follow the KISS principle: keep it simple, stupid! I'm definitely going to
-   be using Ken Thompson's principle here: "When in doubt, use brute force."
- + Take a lot of small steps to reach the final goal. I'll break the journey
-   up into a lot of simple steps instead of taking large leaps. This will
-   make each new addition to the compiler a bite-sized and easily digestible
-   thing.
+  + 자체 컴파일이 가능한 컴파일러를 만든다. 컴파일러가 자기 자신을 컴파일할 수 있다면 이를 진정한 의미의 *실제* 컴파일러라고 부를 수 있다고 생각한다.
+  + 최소한 하나의 실제 하드웨어 플랫폼을 대상으로 한다. 가상의 기계를 위한 코드를 생성하는 컴파일러들을 몇 개 본 적이 있다. 이 컴파일러는 실제 하드웨어에서 동작하기를 원한다. 또한 가능하다면 서로 다른 하드웨어 플랫폼을 위한 여러 백엔드를 지원할 수 있도록 설계하고자 한다.
+  + 이론보다 실용성을 우선한다. 컴파일러 분야에는 많은 연구가 있다. 이 여정을 완전한 기초부터 시작하고 싶기에, 이론 중심보다는 실용적인 접근 방식을 선택할 것이다. 다만 때로는 이론을 바탕으로 한 내용을 소개하고 구현해야 할 필요도 있을 것이다.
+  + KISS 원칙을 따른다: 단순하게 만들자! 켄 톰슨의 원칙을 적극 활용할 것이다: "의심스러울 때는 무식한 방법을 써라."
+  + 최종 목표를 달성하기 위해 작은 단계들을 밟아나간다. 큰 도약 대신 여정을 많은 작은 단계들로 나누어 진행할 것이다. 이렇게 하면 컴파일러에 추가되는 각각의 새로운 기능을 이해하기 쉽고 소화하기 좋은 크기로 만들 수 있다.
 
-## Target Language
+## 타겟 언어 선택
 
-The choice of a target language is difficult. If I choose a high-level
-language like Python, Go etc., then I'll have to implement a whole pile
-of libraries and classes as they are built-in to the language.
+타겟 언어를 선택하는 일은 쉽지 않다. 파이썬이나 Go 같은 고수준 언어를 선택한다면, 이미 언어에 내장된 수많은 라이브러리와 클래스를 직접 구현해야 하는 부담이 생긴다.
 
-I could write a compiler for a language like Lisp, but these can be
-[done easily](ftp://publications.ai.mit.edu/ai-publications/pdf/AIM-039.pdf).
+Lisp과 같은 언어의 컴파일러를 만드는 것도 가능하지만, 이는 이미 [쉽게 구현할 수 있는 방법](ftp://publications.ai.mit.edu/ai-publications/pdf/AIM-039.pdf)이 존재한다.
 
-Instead, I've fallen back on the old standby and I'm going to write a
-compiler for a subset of C, enough to allow the compiler to compile
-itself.
+그래서 결국 오래된 방식을 따르기로 결정했다. C 언어의 부분집합을 위한 컴파일러를 만들되, 자기 자신을 컴파일할 수 있을 정도의 기능을 구현하려 한다.
 
-C is just a step up from assembly language (for some subset of C, not
-[C18](https://en.wikipedia.org/wiki/C18_(C_standard_revision))), and this
-will help make the task of compiling the C code down to assembly somewhat
-easier. Oh, and I also like C.
+C 언어는 어셈블리 언어보다 한 단계 위의 추상화 수준을 제공한다(이는 [C18](https://en.wikipedia.org/wiki/C18_(C_standard_revision))이 아닌 C의 부분집합에 해당한다). 이러한 특성은 C 코드를 어셈블리로 컴파일하는 작업을 더 수월하게 만든다. 그리고 개인적으로도 C 언어를 선호한다.
 
-## The Basics of a Compiler's Job
+## 컴파일러의 기본 작업
 
-The job of a compiler is to translate input in one language (usually
-a high-level language) into a different output language (usually a
-lower-level language than the input). The main steps are:
+컴파일러는 하나의 언어(주로 고수준 언어)로 작성된 입력을 다른 언어(주로 입력보다 저수준 언어)로 변환하는 작업을 수행한다. 주요 단계는 다음과 같다:
 
 ![](Figs/parsing_steps.png)
 
- + Do [lexical analysis](https://en.wikipedia.org/wiki/Lexical_analysis)
-to recognise the lexical elements. In several languages, `=` is different
-to `==`, so you can't just read a single `=`. We call these lexical
-elements *tokens*.
- + [Parse](https://en.wikipedia.org/wiki/Parsing) the input, i.e. recognise
-the syntax and structural elements of the input and ensure that they
-conform to the *grammar* of the language. For example, your language
-might have this decision-making
-structure:
++ [어휘 분석](https://en.wikipedia.org/wiki/Lexical_analysis)을 통해 어휘 요소를 인식한다. 여러 프로그래밍 언어에서 `=`와 `==`는 서로 다른 의미를 가지므로, 단순히 하나의 `=`만 읽어서는 안 된다. 이러한 어휘 요소를 *토큰*이라고 부른다.
 
-```
-      if (x < 23) {
-        print("x is smaller than 23\n");
-      }
++ 입력을 [구문 분석](https://en.wikipedia.org/wiki/Parsing)하여 입력의 문법과 구조적 요소를 인식하고, 이들이 프로그래밍 언어의 *문법*을 준수하는지 확인한다. 예를 들어, 어떤 언어에서는 다음과 같은 의사 결정 구조를 사용한다:
+
+```c
+if (x < 23) {
+    print("x is smaller than 23\n");
+}
 ```
 
-> but in another language you might write:
+다른 언어에서는 다음과 같이 작성할 수 있다:
 
-```
-      if (x < 23):
-        print("x is smaller than 23\n")
-```
-
-> This is also the place where the compiler can detect syntax errors, like if
-the semicolon was missing on the end of the first *print* statement.
-
- + Do [semantic analysis](https://en.wikipedia.org/wiki/Semantic_analysis_(compilers))
-   of the input, i.e. understand the meaning of the input. This is actually different
-   from recognising the syntax and structure. For example, in English, a
-   sentence might have the form `<subject> <verb> <adjective> <object>`.
-   The following two sentences have the same structure, but completely
-   different meaning:
-
-```
-          David ate lovely bananas.
-          Jennifer hates green tomatoes.
+```python
+if (x < 23):
+    print("x is smaller than 23\n")
 ```
 
- + [Translate](https://en.wikipedia.org/wiki/Code_generation_(compiler))
-   the meaning of the input into a different language. Here we
-   convert the input, parts at a time, into a lower-level language.
+이 단계에서 컴파일러는 첫 번째 *print* 문장 끝에 세미콜론이 없는 것과 같은 문법 오류를 감지할 수 있다.
+
++ 입력의 [의미 분석](https://en.wikipedia.org/wiki/Semantic_analysis_(compilers))을 수행하여 입력의 의미를 이해한다. 이는 문법과 구조를 인식하는 것과는 다른 과정이다. 예를 들어, 영어에서 문장은 `<주어> <동사> <형용사> <목적어>` 형태를 가질 수 있다. 다음 두 문장은 같은 구조를 가지지만 완전히 다른 의미를 전달한다:
+
+```
+David ate lovely bananas.
+Jennifer hates green tomatoes.
+```
+
++ 입력의 의미를 다른 언어로 [변환](https://en.wikipedia.org/wiki/Code_generation_(compiler))한다. 이 단계에서는 입력을 부분별로 나누어 저수준 언어로 변환한다.
   
-## Resources
+## 참고 자료
 
-There's a lot of compiler resources out on the Internet. Here are the ones
-I'll be looking at.
+인터넷에는 컴파일러에 관한 다양한 자료가 있다. 이 문서에서는 주목할 만한 자료들을 소개한다.
 
-### Learning Resources
+### 학습 자료
 
-If you want to start with some books, papers and tools on compilers,
-I'd highly recommend this list:
+컴파일러에 관한 책과 논문, 도구를 공부하고 싶다면 다음 목록을 추천한다:
 
-  + [Curated list of awesome resources on Compilers, Interpreters and Runtimes](https://github.com/aalhour/awesome-compilers) by Ahmad Alhour
++ [컴파일러, 인터프리터, 런타임에 관한 엄선된 자료 모음](https://github.com/aalhour/awesome-compilers) - Ahmad Alhour 제작
 
-### Existing Compilers
+### 기존 컴파일러 목록 
 
-While I'm going to build my own compiler, I plan on looking at other compilers
-for ideas and probably also borrow some of their code. Here are the ones
-I'm looking at:
+독자적인 컴파일러를 만들 예정이지만, 아이디어를 얻고 일부 코드를 참고하기 위해 다음 컴파일러들을 살펴볼 계획이다:
 
-  + [SubC](http://www.t3x.org/subc/) by Nils M Holm
-  + [Swieros C Compiler](https://github.com/rswier/swieros/blob/master/root/bin/c.c) by Robert Swierczek
-  + [fbcc](https://github.com/DoctorWkt/fbcc) by Fabrice Bellard
-  + [tcc](https://bellard.org/tcc/), also by Fabrice Bellard and others
-  + [catc](https://github.com/yui0/catc) by Yuichiro Nakada
-  + [amacc](https://github.com/jserv/amacc) by Jim Huang
-  + [Small C](https://en.wikipedia.org/wiki/Small-C) by Ron Cain,
-    James E. Hendrix, derivatives by others
++ [SubC](http://www.t3x.org/subc/) - Nils M Holm 제작
++ [Swieros C Compiler](https://github.com/rswier/swieros/blob/master/root/bin/c.c) - Robert Swierczek 제작
++ [fbcc](https://github.com/DoctorWkt/fbcc) - Fabrice Bellard 제작
++ [tcc](https://bellard.org/tcc/) - Fabrice Bellard 외 다수 제작
++ [catc](https://github.com/yui0/catc) - Yuichiro Nakada 제작
++ [amacc](https://github.com/jserv/amacc) - Jim Huang 제작
++ [Small C](https://en.wikipedia.org/wiki/Small-C) - Ron Cain, James E. Hendrix 제작, 이후 여러 개발자들이 파생 버전 제작
 
-In particular, I'll be using a lot of the ideas, and some of the code,
-from the SubC compiler.
+특히 SubC 컴파일러의 아이디어와 코드를 상당 부분 활용할 예정이다.
 
-## Setting Up the Development Environment
+## 개발 환경 설정하기
 
-Assuming that you want to come along on this journey, here's what you'll
-need. I'm going to use a Linux development environment, so download and
-set up your favourite Linux system: I'm using Lubuntu 18.04.
+이 여정을 함께하고 싶다면 다음과 같은 준비가 필요하다. 리눅스 개발 환경을 사용할 예정이므로 선호하는 리눅스 시스템을 다운로드하고 설정한다. 필자는 [루분투(Lubuntu) 18.04](https://lubuntu.me/)를 사용한다.
 
-I'm going to target two hardware platforms: Intel x86-64 and 32-bit ARM.
-I'll use a PC running Lubuntu 18.04 as the Intel target, and a Raspberry
-Pi running Raspbian as the ARM target.
+두 가지 하드웨어 플랫폼을 대상으로 한다:
+1. 인텔 x86-64
+2. 32비트 ARM
 
-On the Intel platform, we are going to need an existing C compiler.
-So, install this package (I give the Ubuntu/Debian commands):
+인텔 플랫폼으로는 루분투 18.04가 설치된 PC를, ARM 플랫폼으로는 라즈비안(Raspbian)이 설치된 라즈베리 파이를 사용한다.
 
-```
-  $ sudo apt-get install build-essential
+인텔 플랫폼에서는 기존 C 컴파일러가 필요하다. 우분투/데비안 계열에서는 다음 패키지를 설치한다:
+
+```bash
+$ sudo apt-get install build-essential
 ```
 
-If there are any more tools required for a vanilla Linux
-system, let me know.
+기본 리눅스 시스템에 추가로 필요한 도구가 있다면 알려주기 바란다.
 
-Finally, clone a copy of this Github repository.
+마지막으로, 이 깃허브 저장소의 복사본을 클론한다.
 
-## The Next Step
+## 다음 단계
 
-In the next part of our compiler writing journey, we will start with
-the code to scan our input file and find the *tokens* that are the
-lexical elements of our language. [Next step](../01_Scanner/Readme.md)
+컴파일러 개발 여정의 다음 단계에서는 입력 파일을 스캔하여 우리가 만들 프로그래밍 언어의 어휘 요소인 *토큰(tokens)*을 찾는 코드 작성을 시작할 것이다. [다음 단계](../01_Scanner/Readme.md)
