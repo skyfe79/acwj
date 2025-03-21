@@ -1,19 +1,17 @@
-# Part 6: Variables
+# 6부: 변수
 
-I've just finished adding global variables to the compiler and, as I
-suspected, it was a lot of work. Also, pretty much every file in the
-compiler got modified in the process. So this part of the journey is
-going to be long.
+방금 컴파일러에 전역 변수를 추가하는 작업을 마쳤다. 예상대로 많은 노력이 필요했다. 또한 이 과정에서 컴파일러의 거의 모든 파일이 수정되었다. 따라서 이번 여정은 길어질 것이다.
 
-## What Do We Want from Variables?
 
-We want to be able to:
+## 변수에서 원하는 것
 
- + Declare variables
- + Use variables to get stored values
- + Assign to variables
+변수를 통해 다음과 같은 기능을 구현하려 한다:
 
-Here is `input02` which will be our test program:
++ 변수를 선언한다
++ 저장된 값을 변수로 가져온다
++ 변수에 값을 할당한다
+
+아래는 테스트 프로그램으로 사용할 `input02`이다:
 
 ```
 int fred;
@@ -23,63 +21,53 @@ jim= 12;
 print fred + jim;
 ```
 
-The most obvious change is that the grammar now has
-variable declarations, assignment statements and variables names in
-expressions. However, before we get to that, let's look at how we
-implement variables.
+가장 눈에 띄는 변화는 문법에 변수 선언, 할당문, 그리고 표현식 내의 변수명이 추가된 점이다. 하지만 그 전에, 변수를 어떻게 구현하는지 먼저 살펴보자.
 
-## The Symbol Table
 
-Every compiler is going to need a
-[symbol table](https://en.wikipedia.org/wiki/Symbol_table). Later on,
-we will hold more than just global variables. But for now, here is
-the structure of an entry in the table (from `defs.h`):
+## 심볼 테이블
+
+모든 컴파일러는 [심볼 테이블](https://en.wikipedia.org/wiki/Symbol_table)이 필요하다. 나중에는 전역 변수 외에도 더 많은 정보를 저장할 것이다. 하지만 지금은 테이블의 엔트리 구조를 먼저 살펴보자 (`defs.h` 파일에 정의됨):
 
 ```c
-// Symbol table structure
+// 심볼 테이블 구조체
 struct symtable {
-  char *name;                   // Name of a symbol
+  char *name;                   // 심볼의 이름
 };
 ```
 
-We have an array of symbols in `data.h`:
+`data.h` 파일에는 심볼 배열이 정의되어 있다:
 
 ```c
-#define NSYMBOLS        1024            // Number of symbol table entries
-extern_ struct symtable Gsym[NSYMBOLS]; // Global symbol table
-static int Globs = 0;                   // Position of next free global symbol slot
+#define NSYMBOLS        1024            // 심볼 테이블 엔트리의 수
+extern_ struct symtable Gsym[NSYMBOLS]; // 전역 심볼 테이블
+static int Globs = 0;                   // 다음으로 사용 가능한 전역 심볼 슬롯의 위치
 ```
 
-`Globs` is actually in `sym.c`, the file that manages the symbol table.
-In here we have these management functions:
+`Globs`는 실제로 심볼 테이블을 관리하는 `sym.c` 파일에 있다. 이 파일에는 다음과 같은 관리 함수가 있다:
 
-  + `int findglob(char *s)`: Determine if the symbol s is in the global
-     symbol table. Return its slot position or -1 if not found.
-  + `static int newglob(void)`: Get the position of a new global symbol
-     slot, or die if we've run out of positions.
-  + `int addglob(char *name)`: Add a global symbol to the symbol table.
-     Return the slot number in the symbol table.
+  + `int findglob(char *s)`: 심볼 s가 전역 심볼 테이블에 있는지 확인한다. 존재하면 해당 슬롯의 위치를 반환하고, 없으면 -1을 반환한다.
+  + `static int newglob(void)`: 새로운 전역 심볼 슬롯의 위치를 가져온다. 슬롯이 모두 사용되었으면 오류를 발생시킨다.
+  + `int addglob(char *name)`: 전역 심볼을 심볼 테이블에 추가한다. 심볼 테이블에서의 슬롯 번호를 반환한다.
 
-The code is fairly straight forward, so I won't bother to give the code
-here in the discussion. With these functions, we can find symbols and
-add new symbols to the symbol table.
+코드는 매우 직관적이므로 여기서 자세히 설명하지 않는다. 이 함수들을 사용하면 심볼을 찾고, 새로운 심볼을 심볼 테이블에 추가할 수 있다.
 
-## Scanning and New Tokens
 
-If you look at the example input file, we need a few new tokens:
+## 스캐닝과 새로운 토큰
 
-  + 'int', known as T_INT
-  + '=', known as T_EQUALS
-  + identifier names, known as T_IDENT
+예제 입력 파일을 보면 몇 가지 새로운 토큰이 필요하다:
 
-The scanning of '=' is easy to add to `scan()`:
+  + 'int', T_INT로 알려짐
+  + '=', T_EQUALS로 알려짐
+  + 식별자 이름, T_IDENT로 알려짐
+
+'='의 스캐닝은 `scan()`에 쉽게 추가할 수 있다:
 
 ```c
   case '=':
     t->token = T_EQUALS; break;
 ```
 
-We can add the 'int' keyword to `keyword()`:
+'int' 키워드는 `keyword()`에 추가할 수 있다:
 
 ```c
   case 'i':
@@ -88,30 +76,28 @@ We can add the 'int' keyword to `keyword()`:
     break;
 ```
 
-For identifiers, we are already using `scanident()` to store words into the
-`Text` variable. Instead of dying if a word is not a keyword, we can
-return a T_IDENT token:
+식별자의 경우, 이미 `scanident()`를 사용해 단어를 `Text` 변수에 저장하고 있다. 단어가 키워드가 아닐 때 종료하는 대신 T_IDENT 토큰을 반환할 수 있다:
 
 ```c
    if (isalpha(c) || '_' == c) {
-      // Read in a keyword or identifier
+      // 키워드나 식별자를 읽어옴
       scanident(c, Text, TEXTLEN);
 
-      // If it's a recognised keyword, return that token
+      // 인식된 키워드라면 해당 토큰을 반환
       if (tokentype = keyword(Text)) {
         t->token = tokentype;
         break;
       }
-      // Not a recognised keyword, so it must be an identifier
+      // 인식된 키워드가 아니므로 식별자임
       t->token = T_IDENT;
       break;
     }
 ```
 
-## The New Grammar
 
-We're about ready to look at the changes to the grammar of our input
-language. As before, I'll define it with BNF notation:
+## 새로운 문법
+
+이제 입력 언어의 문법 변화를 살펴볼 준비가 되었다. 이전과 마찬가지로 BNF 표기법을 사용해 정의한다:
 
 ```
  statements: statement
@@ -127,13 +113,10 @@ language. As before, I'll define it with BNF notation:
       ;
 ```
 
-An identifier is returned as a T_IDENT token, and we already have the code
-to parse print statements. But, as we now have three types of statements,
-it makes sense to write a  function to deal with each one. Our top-level
-`statements()` function in `stmt.c` now looks like:
+식별자는 T_IDENT 토큰으로 반환되며, 이미 print 문을 파싱하는 코드가 있다. 하지만 이제 세 가지 타입의 문이 있으므로, 각각을 처리하는 함수를 작성하는 것이 합리적이다. `stmt.c` 파일의 최상위 `statements()` 함수는 이제 다음과 같다:
 
 ```c
-// Parse one or more statements
+// 하나 이상의 문을 파싱
 void statements(void) {
 
   while (1) {
@@ -156,22 +139,20 @@ void statements(void) {
 }
 ```
 
-I've moved the old print statement code into `print_statement()` and
-you can browse that yourself.
+기존의 print 문 코드를 `print_statement()` 함수로 옮겼으며, 이는 직접 확인할 수 있다.
 
-## Variable Declarations
 
-Let's look at variable declarations. This
-is in a new file, `decl.c`, as we are going to have lots of other types
-of declarations in the future.
+## 변수 선언
+
+변수 선언에 대해 살펴보자. 앞으로 다양한 타입의 선언을 다룰 예정이므로, 새로운 파일 `decl.c`에서 작업을 진행한다.
 
 ```c
-// Parse the declaration of a variable
+// 변수 선언을 파싱하는 함수
 void var_declaration(void) {
 
-  // Ensure we have an 'int' token followed by an identifier
-  // and a semicolon. Text now has the identifier's name.
-  // Add it as a known identifier
+  // 'int' 토큰 다음에 식별자와 세미콜론이 오는지 확인한다.
+  // 이 시점에서 Text 버퍼에는 식별자 이름이 저장된다.
+  // 이를 알려진 식별자로 추가한다.
   match(T_INT, "int");
   ident();
   addglob(Text);
@@ -180,112 +161,100 @@ void var_declaration(void) {
 }
 ```
 
-The `ident()` and `semi()` functions are wrappers around `match()`:
+`ident()`와 `semi()` 함수는 `match()` 함수를 감싼 래퍼 함수다:
 
 ```c
 void semi(void)  { match(T_SEMI, ";"); }
 void ident(void) { match(T_IDENT, "identifier"); }
 ```
 
-Back to `var_declaration()`, once we have scanned in the idenfiier into
-the `Text` buffer, we can add this to the global symbol table with
-`addglob(Text)`. The code in there allows a variable to be declared
-multiple times (for now).
+다시 `var_declaration()` 함수로 돌아가서, `Text` 버퍼에 식별자를 스캔한 후에는 `addglob(Text)`를 통해 전역 심볼 테이블에 이를 추가할 수 있다. 현재 코드에서는 변수를 여러 번 선언할 수 있도록 허용한다.
 
-## Assignment Statements
 
-Here's the code for `assignment_statement()` in `stmt.c`:
+## 할당문
+
+`stmt.c` 파일에 있는 `assignment_statement()` 함수의 코드는 다음과 같다:
 
 ```c
 void assignment_statement(void) {
   struct ASTnode *left, *right, *tree;
   int id;
 
-  // Ensure we have an identifier
+  // 식별자가 있는지 확인
   ident();
 
-  // Check it's been defined then make a leaf node for it
+  // 정의된 변수인지 확인한 후 리프 노드를 생성
   if ((id = findglob(Text)) == -1) {
     fatals("Undeclared variable", Text);
   }
   right = mkastleaf(A_LVIDENT, id);
 
-  // Ensure we have an equals sign
+  // 등호(=)가 있는지 확인
   match(T_EQUALS, "=");
 
-  // Parse the following expression
+  // 다음 표현식을 파싱
   left = binexpr(0);
 
-  // Make an assignment AST tree
+  // 할당 AST 트리 생성
   tree = mkastnode(A_ASSIGN, left, right, 0);
 
-  // Generate the assembly code for the assignment
+  // 할당을 위한 어셈블리 코드 생성
   genAST(tree, -1);
   genfreeregs();
 
-  // Match the following semicolon
+  // 다음 세미콜론(;)을 확인
   semi();
 }
 ```
 
-We have a couple of new AST node types. A_ASSIGN takes the expression in
-the left-hand child and assigns it to the right-hand child. And the
-right-hand child will be an A_LVIDENT node.
+여기서 두 가지 새로운 AST 노드 타입이 등장한다. `A_ASSIGN`은 왼쪽 자식에 있는 표현식을 오른쪽 자식에 할당한다. 그리고 오른쪽 자식은 `A_LVIDENT` 노드가 된다.
 
-Why did I call this node *A_LVIDENT*? Because it represents an *lvalue*
-identifier. So what's an
-[lvalue](https://en.wikipedia.org/wiki/Value_(computer_science)#lrvalue)?
+왜 이 노드를 `A_LVIDENT`라고 명명했을까? 이 노드는 *lvalue* 식별자를 나타내기 때문이다. 그렇다면 [lvalue](https://en.wikipedia.org/wiki/Value_(computer_science)#lrvalue)란 무엇인가?
 
-An lvalue is a value that is tied to a specific location. Here, it's the
-address in memory which holds a variable's value. When we do:
+lvalue는 특정 위치에 연결된 값을 의미한다. 여기서는 변수의 값을 저장하는 메모리 주소를 가리킨다. 다음과 같은 코드를 작성할 때:
 
 ```
    area = width * height;
 ```
 
-we *assign* the result of the right-hand side (i.e. the *rvalue*) to the
-variable in the left-hand side (i.e. the *lvalue*). The *rvalue* isn't tied
-to a specific location. Here, the expression result is probably in some
-arbitrary register.
+우리는 오른쪽 표현식의 결과(즉, *rvalue*)를 왼쪽 변수(즉, *lvalue*)에 할당한다. *rvalue*는 특정 위치에 고정되지 않는다. 이 경우, 표현식의 결과는 임의의 레지스터에 저장될 것이다.
 
-Also note that, although the assignment statement has the syntax
+또한, 할당문의 문법이 다음과 같음에도 불구하고:
 
 ```
   identifier '=' expression ';'
 ```
 
-we will make the expression the left sub-tree of the A_ASSIGN node
-and save the A_LVIDENT details in the right sub-tree. Why? Because
-we need to evaluate the expression *before* we save it into the variable.
+우리는 표현식을 `A_ASSIGN` 노드의 왼쪽 서브 트리로 만들고, `A_LVIDENT`의 세부 정보를 오른쪽 서브 트리에 저장한다. 왜냐하면 변수에 값을 저장하기 전에 표현식을 먼저 평가해야 하기 때문이다.
 
-## Changes to the AST Structure
 
-We now need to store either an integer literal value in A_INTLIT AST nodes, or
-the details of the symbol for A_IDENT AST nodes. I've added a *union* to the
-AST structure to do this (in `defs.h`):
+## AST 구조 변경 사항
+
+이제 A_INTLIT AST 노드에는 정수 리터럴 값을 저장하거나, A_IDENT AST 노드에는 심볼의 세부 정보를 저장해야 한다. 이를 위해 AST 구조에 *union*을 추가했다 (`defs.h` 파일에 있음):
 
 ```c
-// Abstract Syntax Tree structure
+// 추상 구문 트리 구조
 struct ASTnode {
-  int op;                       // "Operation" to be performed on this tree
-  struct ASTnode *left;         // Left and right child trees
+  int op;                       // 이 트리에서 수행할 "연산"
+  struct ASTnode *left;         // 왼쪽 및 오른쪽 자식 트리
   struct ASTnode *right;
   union {
-    int intvalue;               // For A_INTLIT, the integer value
-    int id;                     // For A_IDENT, the symbol slot number
+    int intvalue;               // A_INTLIT의 경우, 정수 값
+    int id;                     // A_IDENT의 경우, 심볼 슬롯 번호
   } v;
 };
 ```
 
-## Generating the Assignment Code
 
-Let's now look at the changes to `genAST()` in `gen.c`
+## Assignment Code 생성
+
+이제 `gen.c` 파일의 `genAST()` 함수의 변경 사항을 살펴보자.
 
 ```c
 int genAST(struct ASTnode *n, int reg) {
   int leftreg, rightreg;
 
-  // Get the left and right sub-tree values
+  // 왼쪽과 오른쪽 서브 트리의 값을 가져옴
   if (n->left)
     leftreg = genAST(n->left, -1);
   if (n->right)
@@ -300,21 +269,16 @@ int genAST(struct ASTnode *n, int reg) {
   case A_LVIDENT:
     return (cgstorglob(reg, Gsym[n->v.id].name));
   case A_ASSIGN:
-    // The work has already been done, return the result
+    // 작업이 이미 완료되었으므로 결과를 반환
     return (rightreg);
   default:
     fatald("Unknown AST operator", n->op);
   }
-
 ```
 
-Note that we evaluate the left-hand AST child first, and we get back
-a register number that holds the left-hand sub-tree's value. We now
-pass this register number to the right-hand sub-tree. We need to do
-this for A_LVIDENT nodes, so that the `cgstorglob()` function in `cg.c`
-knows which register holds the rvalue result of the assignment expression.
+왼쪽 AST 자식을 먼저 평가하고, 왼쪽 서브 트리의 값을 보유한 레지스터 번호를 반환한다. 이 레지스터 번호를 오른쪽 서브 트리에 전달한다. 이 작업은 A_LVIDENT 노드에서 필요하며, `cg.c` 파일의 `cgstorglob()` 함수가 할당 표현식의 rvalue 결과를 보유한 레지스터를 알 수 있도록 한다.
 
-So, consider this AST tree:
+다음 AST 트리를 고려해보자.
 
 ```
            A_ASSIGN
@@ -323,95 +287,83 @@ So, consider this AST tree:
         (3)        (5)
 ```
 
-We call `leftreg = genAST(n->left, -1);` to evaluate the A_INTLIT operation.
-This will `return (cgloadint(n->v.intvalue));`, i.e. load a register with the
-value 3 and return the register id.
+A_INTLIT 연산을 평가하기 위해 `leftreg = genAST(n->left, -1);`를 호출한다. 이는 `return (cgloadint(n->v.intvalue));`를 반환하며, 값 3을 레지스터에 로드하고 레지스터 ID를 반환한다.
 
-Then, we call `rightreg = genAST(n->right, leftreg);` to evaluate the
-A_LVIDENT operation. This will
-`return (cgstorglob(reg, Gsym[n->v.id].name));`, i.e. store the
-register into the variable whose name is in `Gsym[5]`.
+그런 다음, A_LVIDENT 연산을 평가하기 위해 `rightreg = genAST(n->right, leftreg);`를 호출한다. 이는 `return (cgstorglob(reg, Gsym[n->v.id].name));`를 반환하며, 레지스터를 `Gsym[5]`에 있는 이름의 변수에 저장한다.
 
-Then we switch to the A_ASSIGN case. Well, all our work has already been done.
-The rvalue is still in a register, so let's leave it there and return it.
-Later, we'll be able to do expressions like:
+그 후 A_ASSIGN 케이스로 전환한다. 모든 작업이 이미 완료되었으므로, rvalue는 여전히 레지스터에 남아 있으므로 그대로 두고 반환한다. 나중에 다음과 같은 표현식을 처리할 수 있다.
 
 ```
   a= b= c = 0;
 ```
 
-where an assignment is not just a statement but also an expression.
+여기서 할당은 단순한 문장이 아니라 표현식이기도 하다.
 
-## Generating x86-64 Code
 
-You would have noticed that I changed the name of the old `cgload()`
-function to `cgloadint()`. This is more specific. We now have a
-function to load the value out of a global variable (in `cg.c`):
+## x86-64 코드 생성
+
+이전 `cgload()` 함수의 이름을 `cgloadint()`로 변경한 것을 눈치챘을 것이다. 이는 더 구체적인 이름이다. 이제 전역 변수에서 값을 로드하는 함수를 추가한다(`cg.c`에 위치):
 
 ```c
 int cgloadglob(char *identifier) {
-  // Get a new register
+  // 새로운 레지스터를 할당
   int r = alloc_register();
 
-  // Print out the code to initialise it
+  // 레지스터를 초기화하는 코드를 출력
   fprintf(Outfile, "\tmovq\t%s(\%%rip), %s\n", identifier, reglist[r]);
   return (r);
 }
 ```
 
-Similarly, we need a function to save a register into a variable:
+마찬가지로, 레지스터의 값을 변수에 저장하는 함수도 필요하다:
 
 ```c
-// Store a register's value into a variable
+// 레지스터의 값을 변수에 저장
 int cgstorglob(int r, char *identifier) {
   fprintf(Outfile, "\tmovq\t%s, %s(\%%rip)\n", reglist[r], identifier);
   return (r);
 }
 ```
 
-We also need a function to create a new global integer variable:
+또한, 새로운 전역 정수 변수를 생성하는 함수도 필요하다:
 
 ```c
-// Generate a global symbol
+// 전역 심볼 생성
 void cgglobsym(char *sym) {
   fprintf(Outfile, "\t.comm\t%s,8,8\n", sym);
 }
 ```
 
-Of course, we can't let the parser access this code directly. Instead,
-there is a function in the generic code generator in `gen.c` 
-that acts as the interface:
+물론, 파서가 이 코드에 직접 접근하는 것은 허용할 수 없다. 대신, `gen.c`에 있는 일반 코드 생성기 함수를 인터페이스로 사용한다:
 
 ```c
 void genglobsym(char *s) { cgglobsym(s); }
 ```
 
-## Variables in Expressions
 
-So now we can assign to variables. But how do we get a variable's value into
-an expression. Well, we already have a `primary()` function to get an
-integer literal. Let's modify it to also load a variable's value:
+## 표현식에서 변수 사용하기
+
+이제 변수에 값을 할당할 수 있다. 그렇다면 표현식 안에서 변수의 값을 어떻게 가져올 수 있을까? 이미 정수 리터럴을 가져오는 `primary()` 함수가 있다. 이 함수를 수정해 변수의 값도 가져올 수 있게 해보자.
 
 ```c
-// Parse a primary factor and return an
-// AST node representing it.
+// 기본 요소를 파싱하고 이를 나타내는 AST 노드를 반환한다.
 static struct ASTnode *primary(void) {
   struct ASTnode *n;
   int id;
 
   switch (Token.token) {
   case T_INTLIT:
-    // For an INTLIT token, make a leaf AST node for it.
+    // INTLIT 토큰의 경우, 이를 위한 리프 AST 노드를 생성한다.
     n = mkastleaf(A_INTLIT, Token.intvalue);
     break;
 
   case T_IDENT:
-    // Check that this identifier exists
+    // 해당 식별자가 존재하는지 확인한다.
     id = findglob(Text);
     if (id == -1)
       fatals("Unknown variable", Text);
 
-    // Make a leaf AST node for it
+    // 이를 위한 리프 AST 노드를 생성한다.
     n = mkastleaf(A_IDENT, id);
     break;
 
@@ -419,23 +371,20 @@ static struct ASTnode *primary(void) {
     fatald("Syntax error, token", Token.token);
   }
 
-  // Scan in the next token and return the leaf node
+  // 다음 토큰을 스캔하고 리프 노드를 반환한다.
   scan(&Token);
   return (n);
 }
 ```
 
-Note the syntax checking in the T_IDENT case to ensure the variable has
-been declared before we try to use it.
+T_IDENT 케이스에서 변수가 선언되었는지 확인하는 구문 검사를 주목하자. 이는 변수를 사용하기 전에 선언되었는지 확인하는 중요한 단계다.
 
-Also note that the AST leaf node that *retrieves* a variable's value is
-an A_IDENT node. The leaf that saves into a variable is an A_LVIDENT node.
-This is the difference between *rvalues* and *lvalues*.
+또한 변수의 값을 가져오는 AST 리프 노드는 A_IDENT 노드다. 반면 변수에 값을 저장하는 리프 노드는 A_LVIDENT 노드다. 이것이 *rvalues*와 *lvalues*의 차이점이다.
 
-## Trying It Out
 
-I think that's about it for variable declarations, so let's try it out
-with the `input02` file:
+## 직접 해보기
+
+변수 선언에 대한 내용은 이 정도로 마무리하고, `input02` 파일로 직접 테스트해 보자.
 
 ```
 int fred;
@@ -445,7 +394,7 @@ jim= 12;
 print fred + jim;
 ```
 
-We can `make test` to do this:
+`make test` 명령어를 실행하면 다음과 같은 결과를 얻을 수 있다.
 
 ```
 $ make test
@@ -458,12 +407,11 @@ cc -o out out.s
 17
 ```
 
-As you can see, we calculated `fred + jim` which is 5 + 12 or 17.
-Here are the new assembly lines in `out.s`:
+결과에서 볼 수 있듯이, `fred + jim`을 계산했고, 이는 5 + 12로 17이 된다. `out.s` 파일에 새로 추가된 어셈블리 코드는 다음과 같다.
 
 ```
-        .comm   fred,8,8                # Declare fred
-        .comm   jim,8,8                 # Declare jim
+        .comm   fred,8,8                # fred 선언
+        .comm   jim,8,8                 # jim 선언
         ...
         movq    $5, %r8
         movq    %r8, fred(%rip)         # fred = 5
@@ -474,14 +422,13 @@ Here are the new assembly lines in `out.s`:
         addq    %r8, %r9                # fred + jim
 ```
 
-## Other Changes
 
-I've probably made a few other changes. The only main one that I can
-remember is to create some helper functions in `misc.c` to make it
-easier to report fatal errors:
+## 기타 변경 사항
+
+몇 가지 다른 변경 사항도 있었다. 기억나는 주요 변경 사항 중 하나는 `misc.c` 파일에 몇 가지 헬퍼 함수를 추가한 것이다. 이 함수들은 치명적인 오류를 더 쉽게 보고할 수 있도록 도와준다:
 
 ```c
-// Print out fatal messages
+// 치명적인 오류 메시지 출력
 void fatal(char *s) {
   fprintf(stderr, "%s on line %d\n", s, Line); exit(1);
 }
@@ -499,17 +446,13 @@ void fatalc(char *s, int c) {
 }
 ```
 
-## Conclusion and What's Next
 
-So that was a lot of work. We had to write the beginnings of symbol
-table management. We had to deal with two new statement types. We
-had to add some new tokens and some new AST node types. Finally, we
-had to add some code to generate the correct x86-64 assembly output.
+## 결론 및 다음 단계
 
-Try writing a few example input files and see if the compiler works
-as it should, especially if it detects syntax errors and semantic
-errors (variable use without a declaration).
+상당히 많은 작업을 마쳤다. 심볼 테이블 관리를 위한 초기 코드를 작성했다. 두 가지 새로운 구문 타입을 처리했다. 새로운 토큰과 AST 노드 타입을 추가했다. 마지막으로 올바른 x86-64 어셈블리 코드를 생성하기 위한 코드를 작성했다.
 
-In the next part of our compiler writing journey, we will
-add the six comparison operators to our language. That will
-allow us to start on the control structures in the part after that. [Next step](../07_Comparisons/Readme.md)
+몇 가지 예제 입력 파일을 작성해 컴파일러가 제대로 동작하는지 확인해 보자. 특히 구문 오류와 변수를 선언하지 않고 사용하는 경우 같은 의미 오류를 잘 감지하는지 테스트해 보자.
+
+컴파일러 개발의 다음 단계에서는 여섯 가지 비교 연산자를 언어에 추가할 예정이다. 이를 통해 그다음 단계에서 제어 구조를 구현할 수 있게 된다. [다음 단계](../07_Comparisons/Readme.md)
+
+
