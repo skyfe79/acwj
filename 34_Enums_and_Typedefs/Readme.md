@@ -1,62 +1,48 @@
-# Part 34: Enums and Typedefs
+# 34부: 열거형과 타입 정의
 
-I decided to implement both enums and typedefs in this part of our
-compiler writing journey, as each one was quite small.
+이번 파트에서는 열거형(enum)과 타입 정의(typedef)를 함께 구현하기로 했다. 두 기능 모두 규모가 작아서 한 번에 다루기 적합했다.
 
-We already covered the design aspects of enums back in part 30. To revise
-briefly, enums are just named integer literals. There were two issues to
-deal with:
+이미 30부에서 열거형의 설계 측면을 다뤘다. 간단히 복습하자면, 열거형은 이름이 붙은 정수 리터럴이다. 여기서 해결해야 할 두 가지 문제가 있다:
 
- + we cannot redefine an enum type name, and
- + we cannot redefine a named enum value
+1. 열거형 타입 이름을 재정의할 수 없다.
+2. 열거형 값의 이름을 재정의할 수 없다.
 
-As examples of the above:
+이를 예제로 살펴보자:
 
 ```c
 enum fred { x, y, z };
-enum fred { a, b };             // fred is redefined
-enum jane { x, y };             // x and y are redefined
+enum fred { a, b };             // fred가 재정의됨
+enum jane { x, y };             // x와 y가 재정의됨
 ```
 
-As you can see above, a list of enumerated values only has identifier names
-and no types: it means we can't reuse our existing variable declaration
-parsing code. We will have to write our own parsing code here.
+위 예제에서 볼 수 있듯이, 열거형 값의 목록은 식별자 이름만 있고 타입은 없다. 이는 기존 변수 선언 파싱 코드를 재사용할 수 없음을 의미한다. 따라서 여기서는 별도의 파싱 코드를 작성해야 한다.
 
-## New Keywords and Tokens
 
-I've added two new keywords, 'enum' and 'typedef' to the grammar along
-with two tokens, T_ENUM and T_TYPEDEF. Browse through the code in `scan.c`
-for details.
+## 새로운 키워드와 토큰
 
-## Symbol Table Lists for Enums and Typedefs
+문법에 'enum'과 'typedef'라는 두 가지 새로운 키워드를 추가했다. 이와 함께 두 개의 토큰인 T_ENUM과 T_TYPEDEF도 도입했다. 자세한 내용은 `scan.c` 파일의 코드를 참고한다.
 
-We need to record the details of the declared enums and typedefs, so there
-are two new symbol table lists in `data.h`:
+
+## 열거형과 타입 정의를 위한 심볼 테이블 목록
+
+선언된 열거형과 타입 정의의 세부 정보를 기록하기 위해 `data.h` 파일에 두 개의 새로운 심볼 테이블 목록을 추가한다:
 
 ```c
-extern_ struct symtable *Enumhead,  *Enumtail;    // List of enum types and values
-extern_ struct symtable *Typehead,  *Typetail;    // List of typedefs
+extern_ struct symtable *Enumhead,  *Enumtail;    // 열거형 타입과 값의 목록
+extern_ struct symtable *Typehead,  *Typetail;    // 타입 정의의 목록
 ```
 
-and in `sym.c` there are associated functions to add entries to each list
-and to search each list for specific names. Nodes in these lists are
-marked as being one of (from `defs.h`):
+또한 `sym.c` 파일에는 각 목록에 항목을 추가하거나 특정 이름을 검색하는 관련 함수가 포함되어 있다. 이 목록의 노드들은 `defs.h` 파일에서 정의된 다음 클래스 중 하나로 표시된다:
 
 ```c
-  C_ENUMTYPE,                   // A named enumeration type
-  C_ENUMVAL,                    // A named enumeration value
-  C_TYPEDEF                     // A named typedef
+  C_ENUMTYPE,                   // 명명된 열거형 타입
+  C_ENUMVAL,                    // 명명된 열거형 값
+  C_TYPEDEF                     // 명명된 타입 정의
 ```
 
-OK, so two lists but three node classes, what's going on? It turns out
-that enum values (like `x` and `y` in the examples at the top) don't
-belong to any specific enum type. Also, enum type names (like `fred` and
-`jane` in the examples at the top) don't really do anything, but we do
-have to prevent redefinitions of them.
+두 개의 목록이 있지만 세 개의 노드 클래스가 존재한다. 왜 그럴까? 열거형 값(예: 상단 예제의 `x`와 `y`)은 특정 열거형 타입에 속하지 않는다. 또한, 열거형 타입 이름(예: 상단 예제의 `fred`와 `jane`)은 실제로 아무런 기능을 하지 않지만, 이들의 재정의를 방지해야 한다.
 
-I'm using the one enum symbol table list to hold both the C_ENUMTYPE and
-the C_ENUMVAL nodes in the same lists. Using the examples near the top,
-we would have:
+따라서 하나의 열거형 심볼 테이블 목록을 사용해 `C_ENUMTYPE`과 `C_ENUMVAL` 노드를 동일한 목록에 저장한다. 상단의 예제를 사용하면 다음과 같은 구조가 된다:
 
 ```
    fred           x            y            z
@@ -64,38 +50,34 @@ C_ENUMTYPE -> C_ENUMVAL -> C_ENUMVAL -> C_ENUMVAL
                   0            1            2
 ```
 
-This also means that, when we are searching the enum symbol table list,
-we need the ability to search for C_ENUMTYPEs or for C_ENUMVALs.
+이 구조는 열거형 심볼 테이블 목록을 검색할 때 `C_ENUMTYPE` 또는 `C_ENUMVAL`을 검색할 수 있는 기능이 필요함을 의미한다.
 
-## Parsing Enum Declarations
 
-Before I give the code to do this, let's just look at some examples
-of what we need to parse:
+## Enum 선언 파싱
+
+이 코드를 설명하기 전에, 파싱해야 할 몇 가지 예제를 먼저 살펴보자:
 
 ```c
-enum fred { a, b, c };                  // a is 0, b is 1, c is 2
-enum foo  { d=2, e=6, f };              // d is 2, e is 6, f is 7
-enum bar  { g=2, h=6, i } var1;         // var1 is really an int
-enum      { j, k, l }     var2;         // var2 is really an int
+enum fred { a, b, c };                  // a는 0, b는 1, c는 2
+enum foo  { d=2, e=6, f };              // d는 2, e는 6, f는 7
+enum bar  { g=2, h=6, i } var1;         // var1은 실제로 int 타입
+enum      { j, k, l }     var2;         // var2는 실제로 int 타입
 ```
 
-Firstly, where does enum parsing get attached to our existing parsing code?
-As with structs and unions, in the code that parses types (in `decl.c`):
+먼저, enum 파싱은 기존 파싱 코드의 어디에 연결되는가? 구조체(struct)와 공용체(union)와 마찬가지로, 타입을 파싱하는 코드(`decl.c` 파일 내)에 연결된다:
 
 ```c
-// Parse the current token and return
-// a primitive type enum value and a pointer
-// to any composite type.
-// Also scan in the next token
+// 현재 토큰을 파싱하고,
+// 기본 타입 enum 값과 복합 타입에 대한 포인터를 반환한다.
+// 또한 다음 토큰을 스캔한다.
 int parse_type(struct symtable **ctype) {
   int type;
   switch (Token.token) {
 
-      // For the following, if we have a ';' after the
-      // parsing then there is no type, so return -1
+      // 다음 경우, 파싱 후 ';'가 있으면 타입이 없으므로 -1을 반환
       ...
     case T_ENUM:
-      type = P_INT;             // Enums are really ints
+      type = P_INT;             // enum은 실제로 int 타입
       enum_declaration();
       if (Token.token == T_SEMI)
         type = -1;
@@ -105,38 +87,34 @@ int parse_type(struct symtable **ctype) {
 }
 ```
 
-I've changed the return value of `parse_type()` to help identify when
-it was a declaration of a struct, union, enum or typedef and not
-an actual type (followed by an identifier).
+`parse_type()`의 반환 값을 변경하여, 구조체, 공용체, enum 또는 typedef 선언이 실제 타입(식별자 앞에 오는)이 아닌 경우를 식별할 수 있도록 했다.
 
-Let's now look at the `enum_declaration()` code in stages.
+이제 `enum_declaration()` 코드를 단계별로 살펴보자.
 
 ```c
-// Parse an enum declaration
+// enum 선언을 파싱한다.
 static void enum_declaration(void) {
   struct symtable *etype = NULL;
   char *name;
   int intval = 0;
 
-  // Skip the enum keyword.
+  // enum 키워드를 건너뛴다.
   scan(&Token);
 
-  // If there's a following enum type name, get a
-  // pointer to any existing enum type node.
+  // 이후 enum 타입 이름이 있으면,
+  // 기존 enum 타입 노드에 대한 포인터를 가져온다.
   if (Token.token == T_IDENT) {
     etype = findenumtype(Text);
-    name = strdup(Text);        // As it gets tromped soon
+    name = strdup(Text);        // 곧 덮어씌워지므로 복사
     scan(&Token);
   }
 ```
 
-We only have one global variable, `Text`, to hold a scanned-in word, and
-we have to be able to parse `enum foo var1`. If we scan in the token after
-the `foo`, we will lose the `foo` string. So we need to `strdup()` this.
+전역 변수 `Text`는 스캔된 단어를 보관하는 유일한 변수이며, `enum foo var1`과 같은 구문을 파싱할 수 있어야 한다. `foo` 이후의 토큰을 스캔하면 `foo` 문자열을 잃게 된다. 따라서 이를 `strdup()`으로 복사해야 한다.
 
 ```c
-  // If the next token isn't a LBRACE, check
-  // that we have an enum type name, then return
+  // 다음 토큰이 LBRACE가 아니면,
+  // enum 타입 이름이 있는지 확인한 후 반환한다.
   if (Token.token != T_LBRACE) {
     if (etype == NULL)
       fatals("undeclared enum type:", name);
@@ -144,47 +122,42 @@ the `foo`, we will lose the `foo` string. So we need to `strdup()` this.
   }
 ```
 
-We've hit a declaration like `enum foo var1` and not `enum foo { ...`.
-Therefore `foo` must already exist as a known enum type. We can return
-with no value, as the type of every enum is P_INT, which is set in the
-code that calls `enum_declaration()`.
+`enum foo var1`과 같은 선언을 만났고, `enum foo { ...`와 같은 선언이 아니다. 따라서 `foo`는 이미 알려진 enum 타입으로 존재해야 한다. 반환 값은 없어도 되는데, 모든 enum의 타입은 P_INT로 설정되며, 이는 `enum_declaration()`을 호출하는 코드에서 설정된다.
 
 ```c
-  // We do have an LBRACE. Skip it
+  // LBRACE가 있다. 건너뛴다.
   scan(&Token);
 
-  // If we have an enum type name, ensure that it
-  // hasn't been declared before.
+  // enum 타입 이름이 있으면,
+  // 이전에 선언되지 않았는지 확인한다.
   if (etype != NULL)
     fatals("enum type redeclared:", etype->name);
   else
-    // Build an enum type node for this identifier
+    // 이 식별자에 대해 enum 타입 노드를 생성한다.
     etype = addenum(name, C_ENUMTYPE, 0);
 ```
 
-Now we are parsing something like `enum foo { ...`, so we must check
-that `foo` has not already been declared as an enum type.
+이제 `enum foo { ...`와 같은 구문을 파싱하고 있으므로, `foo`가 이미 enum 타입으로 선언되지 않았는지 확인해야 한다.
 
 ```c
-  // Loop to get all the enum values
+  // 모든 enum 값을 가져오기 위해 반복한다.
   while (1) {
-    // Ensure we have an identifier
-    // Copy it in case there's an int literal coming up
+    // 식별자가 있는지 확인한다.
+    // 정수 리터럴이 올 경우를 대비해 복사한다.
     ident();
     name = strdup(Text);
 
-    // Ensure this enum value hasn't been declared before
+    // 이 enum 값이 이전에 선언되지 않았는지 확인한다.
     etype = findenumval(name);
     if (etype != NULL)
       fatals("enum value redeclared:", Text);
 ```
 
-Again, we `strdup()` the enum value identifier.
-We also check that this enum value identifier hasn't already been defined.
+다시 한번, enum 값 식별자를 `strdup()`으로 복사한다. 또한 이 enum 값 식별자가 이미 정의되지 않았는지 확인한다.
 
 ```c
-    // If the next token is an '=', skip it and
-    // get the following int literal
+    // 다음 토큰이 '='이면, 건너뛰고
+    // 이후의 정수 리터럴을 가져온다.
     if (Token.token == T_ASSIGN) {
       scan(&Token);
       if (Token.token != T_INTLIT)
@@ -194,48 +167,38 @@ We also check that this enum value identifier hasn't already been defined.
     }
 ```
 
-This is why we had to `strdup()` as the scanning of an integer literal
-will walk over the `Text` global variable. We scan in the '=' and integer literal
-tokens here and set the `intval` variable to be the integer literal value.
+이것이 `strdup()`을 사용한 이유다. 정수 리터럴을 스캔하면 전역 변수 `Text`를 덮어쓸 수 있다. 여기서 '='와 정수 리터럴 토큰을 스캔하고, `intval` 변수를 정수 리터럴 값으로 설정한다.
 
 ```c
-    // Build an enum value node for this identifier.
-    // Increment the value for the next enum identifier.
+    // 이 식별자에 대해 enum 값 노드를 생성한다.
+    // 다음 enum 식별자를 위해 값을 증가시킨다.
     etype = addenum(name, C_ENUMVAL, intval++);
 
-    // Bail out on a right curly bracket, else get a comma
+    // 오른쪽 중괄호가 나오면 종료, 아니면 쉼표를 가져온다.
     if (Token.token == T_RBRACE)
       break;
     comma();
   }
-  scan(&Token);                 // Skip over the right curly bracket
+  scan(&Token);                 // 오른쪽 중괄호를 건너뛴다.
 }
 ```
 
-We now have the enum value's name and its value in `intval`. We can
-add this to the enum symbol table list with `addenum()`. We also increment
-`intval` to be ready for the next enum value identifier.
+이제 enum 값의 이름과 값을 `intval`로 가지고 있다. 이를 `addenum()`을 사용해 enum 심볼 테이블 목록에 추가할 수 있다. 또한 다음 enum 값 식별자를 위해 `intval`을 증가시킨다.
 
-## Accessing Enum Names
 
-We now have the code to parse the list of enum value names and store
-their integer literal values in the symbol table. How and when do we
-search for them and use them?
+## 열거형 이름 접근하기
 
-We have to do this at the point where we could be using a variable name
-in an expression. If we find an enum name, we convert it into an A_INTLIT
-AST node with a specific value. The location to do this is `postfix()`
-in `expr.c`
+현재 열거형 값 이름 목록을 파싱하고, 그 정수 리터럴 값을 심볼 테이블에 저장하는 코드를 가지고 있다. 이 값을 언제 어떻게 검색하고 사용할까?
+
+이 작업은 표현식에서 변수 이름을 사용할 수 있는 지점에서 수행해야 한다. 열거형 이름을 찾으면, 이를 특정 값을 가진 A_INTLIT AST 노드로 변환한다. 이 작업을 수행할 위치는 `expr.c` 파일의 `postfix()` 함수다.
 
 ```c
-// Parse a postfix expression and return
-// an AST node representing it. The
-// identifier is already in Text.
+// 포스트픽스 표현식을 파싱하고 이를 나타내는 AST 노드를 반환한다.
+// 식별자는 이미 Text에 있다.
 static struct ASTnode *postfix(void) {
   struct symtable *enumptr;
 
-  // If the identifier matches an enum value,
-  // return an A_INTLIT node
+  // 식별자가 열거형 값과 일치하면 A_INTLIT 노드를 반환한다.
   if ((enumptr = findenumval(Text)) != NULL) {
     scan(&Token);
     return (mkastleaf(A_INTLIT, P_INT, NULL, enumptr->posn));
@@ -244,11 +207,10 @@ static struct ASTnode *postfix(void) {
 }
 ```
 
-## Testing the Functionality
 
-All done! There are several test programs that confirm we are spotting
-redefined enum types and names, but the `test/input63.c` code demonstrates
-enums working:
+## 기능 테스트
+
+모든 작업이 완료되었다. 재정의된 enum 타입과 이름을 잘 식별하는지 확인하는 여러 테스트 프로그램이 있다. 그중 `test/input63.c` 코드는 enum이 제대로 동작하는지 보여준다.
 
 ```c
 int printf(char *fmt);
@@ -266,12 +228,12 @@ int main() {
   return(0);
 ```
 
-which adds `carrot + pear + mango` (i.e. 3+10+12) and prints out 25.
+이 코드는 `carrot + pear + mango`(즉, 3+10+12)를 계산해 25를 출력한다.
+
 
 ## Typedefs
 
-That's enums done. Now we look at typedefs. The basic grammar of a typedef
-declaration is:
+이제 enum을 마쳤으니 typedef를 살펴보자. typedef 선언의 기본 문법은 다음과 같다:
 
 ```
 typedef_declaration: 'typedef' identifier existing_type
@@ -279,11 +241,9 @@ typedef_declaration: 'typedef' identifier existing_type
                    ;
 ```
 
-Thus, once we parse the `typedef` keyword, we can parse the following type
-and build a C_TYPEDEF symbol node with the name. We can store the `type` and
-`ctype` of the actual type in this symbol node.
+따라서 `typedef` 키워드를 파싱한 후, 뒤따르는 타입을 파싱하고 이름을 가진 C_TYPEDEF 심볼 노드를 생성할 수 있다. 실제 타입의 `type`과 `ctype`은 이 심볼 노드에 저장한다.
 
-The parsing code is nice and simple. We hook into `parse_type()` in `decl.c`:
+파싱 코드는 간단하고 명확하다. `decl.c` 파일의 `parse_type()` 함수에 연결한다:
 
 ```c
     case T_TYPEDEF:
@@ -293,50 +253,43 @@ The parsing code is nice and simple. We hook into `parse_type()` in `decl.c`:
       break;
 ```
 
-Here is the `typedef_declaration()` code. Note that it returns the actual
-`type` and `ctype` in case the declaration is followed by a variable name.
+다음은 `typedef_declaration()` 함수의 코드다. 이 함수는 선언 뒤에 변수 이름이 오는 경우를 대비해 실제 `type`과 `ctype`을 반환한다.
 
 ```c
-// Parse a typedef declaration and return the type
-// and ctype that it represents
+// typedef 선언을 파싱하고 해당 타입과 ctype을 반환한다.
 int typedef_declaration(struct symtable **ctype) {
   int type;
 
-  // Skip the typedef keyword.
+  // typedef 키워드를 건너뛴다.
   scan(&Token);
 
-  // Get the actual type following the keyword
+  // 키워드 뒤에 오는 실제 타입을 가져온다.
   type = parse_type(ctype);
 
-  // See if the typedef identifier already exists
+  // typedef 식별자가 이미 존재하는지 확인한다.
   if (findtypedef(Text) != NULL)
-    fatals("redefinition of typedef", Text);
+    fatals("typedef 재정의", Text);
 
-  // It doesn't exist so add it to the typedef list
+  // 존재하지 않으면 typedef 리스트에 추가한다.
   addtypedef(Text, type, *ctype, 0, 0);
   scan(&Token);
   return (type);
 }
 ```
 
-The code should be straight-forward but note the recursive call back to
-`parse_type()`: we already have the code to parse the type definition
-after the name of the typedef.
+코드는 직관적이지만, `parse_type()`을 재귀적으로 호출하는 부분에 주목하자. typedef 이름 뒤에 오는 타입 정의를 파싱하기 위한 코드는 이미 준비되어 있다.
 
-## Searching and Using Typedef Definitions
 
-We now have a list of typedef definitions in a symbol table list.
-How do we use these definitions? We effectively have added new type keywords
-to our grammar, e.g.
+## 타입 정의 검색 및 사용
+
+이제 심볼 테이블 리스트에 typedef 정의 목록이 있다. 이 정의들을 어떻게 사용할까? 우리는 문법에 새로운 타입 키워드를 추가한 것과 같다. 예를 들어:
 
 ```c
 FILE    *zin;
 int32_t cost;
 ```
 
-It just means that when we are parsing a type and we hit a keyword that
-we don't recognise, we can look that work up in the typedef list. So,
-we get to modify `parse_type()` again:
+이는 타입을 파싱할 때 인식할 수 없는 키워드를 만나면, typedef 리스트에서 해당 키워드를 찾아볼 수 있다는 의미이다. 따라서 `parse_type()` 함수를 다시 수정한다:
 
 ```c
     case T_IDENT:
@@ -344,14 +297,14 @@ we get to modify `parse_type()` again:
       break;
 ```
 
-Both `type` and `ctype` are returned by `type_of_typedef()`:
+여기서 `type`과 `ctype`은 `type_of_typedef()` 함수에서 반환된다:
 
 ```c
-// Given a typedef name, return the type it represents
+// typedef 이름이 주어지면, 그 이름이 나타내는 타입을 반환한다
 int type_of_typedef(char *name, struct symtable **ctype) {
   struct symtable *t;
 
-  // Look up the typedef in the list
+  // typedef 리스트에서 이름을 찾는다
   t = findtypedef(name);
   if (t == NULL)
     fatals("unknown type", name);
@@ -361,16 +314,15 @@ int type_of_typedef(char *name, struct symtable **ctype) {
 }
 ```
 
-Note that, as yet, I haven't written the code to be "recursive". For example,
-the current code won't parse this example:
+현재 코드는 "재귀적"으로 동작하지 않는다는 점에 유의한다. 예를 들어, 아래 예제는 파싱하지 못한다:
 
 ```c
 typedef int FOO;
 typedef FOO BAR;
-BAR x;                  // x is of type BAR -> type FOO -> type int
+BAR x;                  // x는 BAR 타입 -> FOO 타입 -> int 타입
 ```
 
-But it does compile `tests/input68.c`:
+하지만 `tests/input68.c` 파일은 컴파일한다:
 
 ```c
 int printf(char *fmt);
@@ -389,23 +341,15 @@ int main() {
 }
 ```
 
-with both `int` redefined as type `FOO` and a struct redefined as type `BAR`.
+이 코드는 `int` 타입을 `FOO`로 재정의하고, 구조체를 `BAR` 타입으로 재정의한다.
 
 
-## Conclusion and What's Next
+## 결론과 다음 단계
 
-In this part of our compiler writing journey, we added support for both
-enums and typedefs. Both were relatively easy to do, even though we did
-have to write a fair bit of parsing code for the enums. I guess I was
-spoiled when I could reuse the same parsing code for variable lists,
-struct member lists and union member lists!
+컴파일러 개발 여정의 이번 파트에서는 enum과 typedef를 모두 지원하도록 추가했다. 두 기능 모두 상대적으로 쉽게 구현할 수 있었지만, enum을 위해 다소 많은 파싱 코드를 작성해야 했다. 변수 목록, 구조체 멤버 목록, 공용체 멤버 목록을 위해 동일한 파싱 코드를 재사용할 수 있어서 편했던 것 같다.
 
-The code to add typedefs was really nice and simple. I do need to
-add to code to follow typedefs of typedefs: that also should be simple.
+typedef를 추가하는 코드는 정말 깔끔하고 간단했다. 하지만 typedef의 typedef를 처리하는 코드를 추가해야 한다. 이 부분도 간단하게 구현할 수 있을 것이다.
 
-In the next part of our compiler writing journey, I think it's time we
-bring in the C pre-processor. Now that we have structs, unions, enums
-and typedefs, we should be able to write a bunch of *header files*
-with definitions of some of the common Unix/Linux library functions.
-Then we will be able to include them in our source files and write
-some really useful programs. [Next step](../35_Preprocessor/Readme.md)
+컴파일러 개발의 다음 단계에서는 C 전처리기를 도입할 차례다. 이제 구조체, 공용체, enum, typedef를 모두 갖추었으므로, 일반적인 Unix/Linux 라이브러리 함수의 정의를 담은 여러 헤더 파일을 작성할 수 있다. 그리고 이 헤더 파일을 소스 파일에 포함시켜 실제로 유용한 프로그램을 작성할 수 있을 것이다. [다음 단계](../35_Preprocessor/Readme.md)
+
+

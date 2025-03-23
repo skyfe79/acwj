@@ -1,100 +1,77 @@
-# Part 26: Function Prototypes
+# 26부: 함수 프로토타입
 
-In this part of our compiler writing journey, I've added the ability to
-write function prototypes. In the process, I've had to rewrite some of
-the code that I'd just written in the previous parts; sorry about that.
-I didn't see far enough ahead!
+이번 파트에서는 컴파일러 작성 과정에서 함수 프로토타입을 추가할 수 있는 기능을 구현했다. 이 과정에서 이전 파트에서 작성한 코드 일부를 다시 작성해야 했는데, 이 부분에 대해 사과드린다. 미리 충분히 예상하지 못했던 부분이다!
 
-So what do we want with function prototypes:
+함수 프로토타입을 통해 우리가 원하는 기능은 다음과 같다:
 
- + the ability to declare a function prototype with no body
- + the ability to declare a full function later on
- + to keep the prototype in the global symbol table section,
-   and the parameters as local variables in the local symbol table section
- + error checking on the number and types of parameters against a previous
-   function prototype
++ 본문이 없는 함수 프로토타입을 선언할 수 있어야 한다.
++ 나중에 완전한 함수를 선언할 수 있어야 한다.
++ 프로토타입을 전역 심볼 테이블 섹션에 유지하고, 매개변수는 로컬 심볼 테이블 섹션에 로컬 변수로 유지해야 한다.
++ 이전 함수 프로토타입과 매개변수의 개수 및 타입을 검사하는 오류 체크 기능이 필요하다.
 
-And here is what I'm *not* going to do, at least not yet:
+그리고 다음 기능들은 **아직** 구현하지 않을 것이다:
 
- + `function(void)`: this will be the same as the `function()` declaration
- + the declaration of a function with just the types, e.g.
-   `function(int ,char, long);` as this will make the parsing harder.
-   We can do this later.
++ `function(void)`: 이는 `function()` 선언과 동일하게 처리할 것이다.
++ 타입만으로 함수를 선언하는 방식, 예를 들어 `function(int ,char, long);`과 같은 형태는 파싱을 더 복잡하게 만들 수 있다. 이 부분은 나중에 구현할 예정이다.
 
-## What Functionality Needs to be Rewritten
 
-In a recent part of our journey I added the declaration of a function
-with parameters and a full function body. As we were parsing each
-parameter, I immediately added it to both the global symbol table
-(to form the prototype) and also the local symbol table (to be the
-function's parameters).
+## 어떤 기능을 재작성해야 하는가
 
-Now that we want to implement function prototypes, it's not always true
-that a parameter list will become the actual function's parameters. Consider
-this function prototype:
+최근 작업 과정에서 매개변수와 전체 함수 본문을 가진 함수 선언을 추가했다. 각 매개변수를 파싱할 때, 전역 심볼 테이블(프로토타입을 구성하기 위해)과 지역 심볼 테이블(함수의 매개변수가 되기 위해)에 즉시 추가했다.
+
+이제 함수 프로토타입을 구현하려면, 매개변수 목록이 항상 실제 함수의 매개변수가 되는 것은 아니다. 다음 함수 프로토타입을 생각해 보자:
 
 ```c
   int fred(char a, int foo, long bar);
 ```
 
-We can only define `fred` as a function, and `a`, `foo` and `bar` as
-three parameters in the global symbol table. We have to wait until the
-full function declaration before we can add `a`, `foo` and `bar` to
-the local symbol table.
+여기서 `fred`를 함수로 정의하고, `a`, `foo`, `bar`를 전역 심볼 테이블의 세 매개변수로만 정의할 수 있다. 전체 함수 선언이 나올 때까지 `a`, `foo`, `bar`를 지역 심볼 테이블에 추가할 수 없다.
 
-I'll need to separate the definition of C_PARAM entries on the global symbol
-table and on the local symbol table.
+따라서 전역 심볼 테이블과 지역 심볼 테이블에서 C_PARAM 엔트리의 정의를 분리해야 한다.
 
-## The Design of the New Parsing Mechanism
 
-Here is my quick design for the new function parsing mechanism which also
-deals with prototypes.
+## 새로운 파싱 메커니즘 설계
+
+아래는 프로토타입도 처리하는 새로운 함수 파싱 메커니즘에 대한 빠른 설계이다.
 
 ```
-Get the identifier and '('.
-Search for the identifier in the symbol table.
-If it exists, there is already a prototype: get the id position of
-the function and its parammeter count.
+식별자와 '('를 가져온다.
+심볼 테이블에서 식별자를 검색한다.
+존재하면 프로토타입이 이미 있음: 함수의 ID 위치와 매개변수 개수를 가져온다.
 
-While parsing parameters:
-  - if a previous prototype, compare this param's type against the existing
-    one. Update the symbol's name in case this is a full function
-  - if no previous prototype, add the parameter to the symbol table
+매개변수를 파싱하는 동안:
+  - 이전 프로토타입이 있으면, 기존 매개변수 타입과 현재 매개변수 타입을 비교한다. 
+    완전한 함수인 경우 심볼 이름을 업데이트한다.
+  - 이전 프로토타입이 없으면, 심볼 테이블에 매개변수를 추가한다.
 
-Ensure # of params matches any existing prototype.
-Parse the ')'. If ';' is next, done.
+기존 프로토타입과 매개변수 개수가 일치하는지 확인한다.
+')'를 파싱한다. 다음이 ';'이면 완료.
 
-If '{' is next, copy the parameter list from the global symtable to the
-local sym table. Copy them in a loop so that they are put in reverse order
-in the local sym table.
+'{'가 다음이면, 전역 심볼 테이블에서 지역 심볼 테이블로 매개변수 리스트를 복사한다. 
+로컬 심볼 테이블에 역순으로 배치되도록 루프를 돌며 복사한다.
 ```
 
-I got this done in the last few hours, so here are the code changes.
+지난 몇 시간 동안 이 작업을 마쳤고, 코드 변경 사항은 다음과 같다.
 
-## Changes to `sym.c`
 
-I've changed the parameter list of a couple of functions in `sym.c`:
+## `sym.c` 파일 변경 사항
+
+`sym.c` 파일 내 몇 가지 함수의 매개변수 목록을 변경했다:
 
 ```c
 int addglob(char *name, int type, int stype, int class, int endlabel, int size);
 int addlocl(char *name, int type, int stype, int class, int size);
 ```
 
-Previously, we had `addlocl()` also call `addglob()` to add a C_PARAM
-symbol to both symbol tables. Now that we are separating this function,
-it makes sense to pass the actual class of the symbol to both functions.
+이전에는 `addlocl()` 함수가 `addglob()`을 호출해 C_PARAM 심볼을 두 심볼 테이블에 추가했다. 이제 이 기능을 분리하면서, 두 함수에 실제 심볼 클래스를 전달하는 것이 더 적합하다.
 
-There are calls to these functions in `main.c` and `decl.c`. I'll cover
-the ones in `decl.c` later. The change in `main.c` is trivial.
+이 함수들은 `main.c`와 `decl.c`에서 호출된다. `decl.c`의 변경 사항은 나중에 다룰 예정이다. `main.c`의 변경 사항은 간단하다.
 
-Once we hit the declaration of a real function, we will need to copy
-its parameter list from the global to the local symbol table. As this is
-really something specific to the symbol table, I've added this function to
-`sym.c`:
+실제 함수의 선언을 만나면, 전역 심볼 테이블에서 로컬 심볼 테이블로 매개변수 목록을 복사해야 한다. 이 작업은 심볼 테이블에 특화된 기능이므로, `sym.c`에 다음 함수를 추가했다:
 
 ```c
-// Given a function's slot number, copy the global parameters
-// from its prototype to be local parameters
+// 함수의 슬롯 번호를 받아, 전역 심볼 테이블의 프로토타입에서
+// 로컬 심볼 테이블로 매개변수를 복사한다
 void copyfuncparams(int slot) {
   int i, id = slot + 1;
 
@@ -105,15 +82,15 @@ void copyfuncparams(int slot) {
 }
 ```
 
-## Changes to `decl.c`
 
-Nearly all of the changes to the compiler are confined to `decl.c`. We'll
-start with the small ones and work up to the big ones.
+## `decl.c` 파일의 변경 사항
 
-### `var_declaration()`
+컴파일러의 거의 모든 변경 사항은 `decl.c` 파일에 한정되어 있다. 작은 변경 사항부터 시작해 점차 큰 변경 사항으로 나아가며 살펴본다.
 
-I've changed the parameter list to `var_declaration()` in the same way
-that I did for the `sym.c` functions:
+
+### `var_declaration()` 함수
+
+`sym.c` 함수들과 동일한 방식으로 `var_declaration()` 함수의 매개변수 목록을 변경했다:
 
 ```c
 void var_declaration(int type, int class) {
@@ -126,54 +103,50 @@ void var_declaration(int type, int class) {
 }
 ```
 
-We will use the ability to pass in the class in the other `decl.c`
-functions.
+이제 클래스를 전달할 수 있는 기능을 다른 `decl.c` 함수들에서도 활용할 것이다.
+
 
 ### `param_declaration()`
 
-We have big changes here, as we might already have a parameter list in
-the global symbol table as an existing prototype. If we do, we need to
-check the number and types in the new list against the prototype.
+여기서는 큰 변화가 있다. 이미 전역 심볼 테이블에 프로토타입으로 파라미터 리스트가 존재할 수 있다. 만약 그렇다면, 새로운 리스트의 파라미터 개수와 타입을 프로토타입과 비교해야 한다.
 
 ```c
-// Parse the parameters in parentheses after the function name.
-// Add them as symbols to the symbol table and return the number
-// of parameters. If id is not -1, there is an existing function
-// prototype, and the function has this symbol slot number.
+// 함수 이름 뒤의 괄호 안에 있는 파라미터를 파싱한다.
+// 심볼 테이블에 심볼로 추가하고 파라미터 개수를 반환한다.
+// id가 -1이 아니면, 기존 함수 프로토타입이 존재하며,
+// 함수는 이 심볼 슬롯 번호를 가진다.
 static int param_declaration(int id) {
   int type, param_id;
   int orig_paramcnt;
   int paramcnt = 0;
 
-  // Add 1 to id so that it's either zero (no prototype), or
-  // it's the position of the zeroth existing parameter in
-  // the symbol table
+  // id에 1을 더해, 0(프로토타입 없음)이거나
+  // 심볼 테이블에서 기존 파라미터의 첫 번째 위치를 가리키도록 한다.
   param_id = id + 1;
 
-  // Get any existing prototype parameter count
+  // 기존 프로토타입의 파라미터 개수를 가져온다.
   if (param_id)
     orig_paramcnt = Symtable[id].nelems;
 
-  // Loop until the final right parentheses
+  // 마지막 닫는 괄호가 나올 때까지 반복한다.
   while (Token.token != T_RPAREN) {
-    // Get the type and identifier
-    // and add it to the symbol table
+    // 타입과 식별자를 가져와 심볼 테이블에 추가한다.
     type = parse_type();
     ident();
 
-    // We have an existing prototype.
-    // Check that this type matches the prototype.
+    // 기존 프로토타입이 존재한다면,
+    // 이 타입이 프로토타입과 일치하는지 확인한다.
     if (param_id) {
       if (type != Symtable[id].type)
         fatald("Type doesn't match prototype for parameter", paramcnt + 1);
       param_id++;
     } else {
-      // Add a new parameter to the new prototype
+      // 새로운 프로토타입에 파라미터를 추가한다.
       var_declaration(type, C_PARAM);
     }
     paramcnt++;
 
-    // Must have a ',' or ')' at this point
+    // 이 시점에서 ',' 또는 ')'가 있어야 한다.
     switch (Token.token) {
     case T_COMMA:
       scan(&Token);
@@ -185,138 +158,101 @@ static int param_declaration(int id) {
     }
   }
 
-  // Check that the number of parameters in this list matches
-  // any existing prototype
+  // 이 리스트의 파라미터 개수가 기존 프로토타입과 일치하는지 확인한다.
   if ((id != -1) && (paramcnt != orig_paramcnt))
     fatals("Parameter count mismatch for function", Symtable[id].name);
 
-  // Return the count of parameters
+  // 파라미터 개수를 반환한다.
   return (paramcnt);
 }
 ```
 
-Remember that the first parameter's global symbol table slot position
-is immediately after the slot for the function name's symbol. We get
-passed the slot position of an existing prototype, or -1 if there is
-no prototype.
+첫 번째 파라미터의 전역 심볼 테이블 슬롯 위치는 함수 이름 심볼의 슬롯 바로 다음이다. 기존 프로토타입의 슬롯 위치를 전달받거나, 프로토타입이 없으면 -1을 받는다.
 
-It's a happy coincidence that we can add one to this to get the
-first parameter's slot number, or have 0 to indicate that there is no
-existing prototype.
+여기에 1을 더하면 첫 번째 파라미터의 슬롯 번호를 얻거나, 프로토타입이 없음을 나타내는 0이 된다는 것은 우연히도 편리한 일이다.
 
-We still loop parsing each new parameter, but now there is new code
-to either compare against the existing prototype, or to add the
-parameter to the global symbol table.
+여전히 각 새로운 파라미터를 파싱하며 반복하지만, 이제는 기존 프로토타입과 비교하거나 전역 심볼 테이블에 파라미터를 추가하는 새로운 코드가 있다.
 
-Once we exit the loop, we can compare the number of parameters in this
-list against the number in any existing prototype.
+반복문을 빠져나오면, 이 리스트의 파라미터 개수를 기존 프로토타입의 개수와 비교할 수 있다.
 
-Right now, the code feels a bit ugly and I'm sure that if I leave it
-a while, I'll be able to see a way to refactor it a bit.
+현재 코드는 다소 지저분해 보인다. 시간이 지나면 리팩토링할 방법을 찾을 수 있을 것 같다.
+
 
 ### `function_declaration()`
 
-Previously, this was a fairly simple function: get the type and name,
-add a global symbol, read in the parameters, get the function's body
-and generate an AST tree for the function's code.
+이전에는 이 함수가 비교적 단순했다. 타입과 이름을 가져오고, 전역 심볼을 추가하며, 파라미터를 읽고, 함수의 본문을 가져와 함수 코드에 대한 AST 트리를 생성하는 것이었다.
 
-Now, we have to deal with the fact this this might only be a prototype,
-or it could be a full function. And we won't know until we parse either the
-';' (for a prototype) or the '{' (for a full function). So let's take
-the exposition of the code in stages.
+이제는 이 함수가 프로토타입일 수도 있고, 완전한 함수일 수도 있다는 사실을 처리해야 한다. 그리고 ';' (프로토타입) 또는 '{' (완전한 함수)를 파싱할 때까지 이를 알 수 없다. 따라서 코드를 단계별로 살펴보자.
 
 ```c
-// Parse the declaration of function.
-// The identifier has been scanned & we have the type.
+// 함수 선언을 파싱한다.
+// 식별자는 이미 스캔되었고, 타입을 가지고 있다.
 struct ASTnode *function_declaration(int type) {
   struct ASTnode *tree, *finalstmt;
   int id;
   int nameslot, endlabel, paramcnt;
 
-  // Text has the identifier's name. If this exists and is a
-  // function, get the id. Otherwise, set id to -1
+  // Text에는 식별자의 이름이 있다. 이 이름이 존재하고 함수라면 id를 가져온다. 그렇지 않으면 id를 -1로 설정한다.
   if ((id = findsymbol(Text)) != -1)
     if (Symtable[id].stype != S_FUNCTION)
       id = -1;
 
-  // If this is a new function declaration, get a
-  // label-id for the end label, and add the function
-  // to the symbol table,
+  // 새로운 함수 선언이라면, end label을 위한 label-id를 가져오고, 함수를 심볼 테이블에 추가한다.
   if (id == -1) {
     endlabel = genlabel();
     nameslot = addglob(Text, type, S_FUNCTION, C_GLOBAL, endlabel, 0);
   }
-  // Scan in the '(', any parameters and the ')'.
-  // Pass in any existing function prototype symbol slot number
+  // '(', 파라미터, ')'를 스캔한다. 기존 함수 프로토타입 심볼 슬롯 번호를 전달한다.
   lparen();
   paramcnt = param_declaration(id);
   rparen();
 ```
 
-This is nearly the same as the previous version of the code, except that
-`id` is now set to -1 when there is no previous prototype or a positive
-number when there is a previous prototype. We only add the function's
-name to the global symbol table if it's not already there.
+이 코드는 이전 버전과 거의 동일하지만, 이제 `id`는 이전 프로토타입이 없을 때 -1로 설정되거나, 이전 프로토타입이 있을 때 양수로 설정된다. 함수 이름이 아직 전역 심볼 테이블에 없을 때만 추가한다.
 
 ```c
-  // If this is a new function declaration, update the
-  // function symbol entry with the number of parameters
+  // 새로운 함수 선언이라면, 함수 심볼 항목을 파라미터 개수로 업데이트한다.
   if (id == -1)
     Symtable[nameslot].nelems = paramcnt;
 
-  // Declaration ends in a semicolon, only a prototype.
+  // 선언이 세미콜론으로 끝나면, 이는 프로토타입이다.
   if (Token.token == T_SEMI) {
     scan(&Token);
     return (NULL);
   }
 ```
 
-We've got the count of parameters. If no previous prototype, update this
-prototype with this count. Now we can peek at the token after the end
-of the parameter list. If it's a semicolon, this is just a prototype.
-We now have no AST tree to return, so skip the token and return NULL.
-I've had to slightly alter the code in `global_declarations()` to deal
-with this NULL value: no big change.
+파라미터 개수를 얻었다. 이전 프로토타입이 없다면 이 프로토타입을 이 개수로 업데이트한다. 이제 파라미터 리스트 끝 이후의 토큰을 확인할 수 있다. 세미콜론이라면 이는 단순히 프로토타입이다. 이제 반환할 AST 트리가 없으므로 토큰을 건너뛰고 NULL을 반환한다. `global_declarations()`에서 이 NULL 값을 처리하기 위해 코드를 약간 수정해야 했다: 큰 변화는 없다.
 
-If we continue on, we are now dealing with a full function declaration
-with a body.
+계속 진행한다면, 이제 본문이 있는 완전한 함수 선언을 다루고 있다.
 
 ```c
-  // This is not just a prototype.
-  // Copy the global parameters to be local parameters
+  // 이는 단순히 프로토타입이 아니다.
+  // 전역 파라미터를 로컬 파라미터로 복사한다.
   if (id == -1)
     id = nameslot;
   copyfuncparams(id);
 ```
 
-We now need to copy the parameters from the prototype to the local symbol
-table. The `id = nameslot` code is there for when we have just added
-the global symbols ourselves and there was no previous prototype.
+이제 프로토타입에서 로컬 심볼 테이블로 파라미터를 복사해야 한다. `id = nameslot` 코드는 우리가 직접 전역 심볼을 추가하고 이전 프로토타입이 없을 때를 위한 것이다.
 
-The rest of the code in `function_declaration()` is the same as before and
-I'll omit it. It checks that a non-void function does return a value, and
-generates the AST tree with an A_FUNCTION root node.
+`function_declaration()`의 나머지 코드는 이전과 동일하며 생략한다. 이 코드는 void가 아닌 함수가 값을 반환하는지 확인하고, A_FUNCTION 루트 노드로 AST 트리를 생성한다.
 
-## Testing the New Functionality
 
-One of the drawbacks of the `tests/runtests` script is that it assumes
-the compiler will definitely produce an assembly output file `out.s`
-which can be assembled and run. This prevents us from testing that the
-compiler detects syntax and semantic errors.
+## 새로운 기능 테스트
 
-A quick *grep* of `decl.c` shows these new errors are detected:
+`tests/runtests` 스크립트의 단점 중 하나는 컴파일러가 반드시 어셈블리 출력 파일 `out.s`를 생성한다고 가정한다는 점이다. 이 파일은 어셈블되고 실행될 수 있다. 이로 인해 컴파일러가 구문 오류와 의미론적 오류를 감지하는지 테스트하기 어렵다.
+
+`decl.c` 파일을 간단히 *grep* 해보면 새로운 오류가 감지되는 것을 확인할 수 있다:
 
 ```c
 fatald("Type doesn't match prototype for parameter", paramcnt + 1);
 fatals("Parameter count mismatch for function", Symtable[id].name);
 ```
 
-Thus, I'd better rewrite `tests/runtests` to verify that the compiler
-does detect these errors on bad input.
+따라서 `tests/runtests` 스크립트를 다시 작성해 컴파일러가 잘못된 입력에서 이러한 오류를 감지하는지 확인해야 한다.
 
-We do have two new working test programs, `input29.c` and `input30.c`.
-The first one is the same as `input28.c` except that I've put the
-prototypes of all the functions at the top of the program:
+현재 두 개의 새로운 테스트 프로그램 `input29.c`와 `input30.c`가 작동하고 있다. 첫 번째 프로그램인 `input29.c`는 `input28.c`와 동일하지만, 모든 함수의 프로토타입을 프로그램 상단에 배치했다:
 
 ```c
 int param8(int a, int b, int c, int d, int e, int f, int g, int h);
@@ -324,9 +260,7 @@ int fred(int a, int b, int c);
 int main();
 ```
 
-This, and all previous test programs, still work. `input30.c`, though, is
-probably the first non-trivial program that our compiler has been given.
-It opens its own source file and prints it to standard output:
+이 프로그램과 이전의 모든 테스트 프로그램은 여전히 정상적으로 작동한다. 하지만 `input30.c`는 아마도 우리 컴파일러가 받은 첫 번째 비단순 프로그램일 것이다. 이 프로그램은 자신의 소스 파일을 열어 표준 출력으로 출력한다:
 
 ```c
 int open(char *pathname, int flags);
@@ -353,24 +287,17 @@ int main() {
 }
 ```
 
-We can't yet call the pre-processor, so we manually put in the prototypes
-for the `open()`, `read()`, `write()` and `close()` functions. We also
-have to use 0 instead of O_RDONLY in the `open()` call.
+아직 전처리기를 호출할 수 없으므로 `open()`, `read()`, `write()`, `close()` 함수의 프로토타입을 수동으로 추가했다. 또한 `open()` 호출에서 `O_RDONLY` 대신 0을 사용해야 한다.
 
-Right now, the compiler lets us declare a `char buf[60];` but we can't use
-`buf` itself as a char pointer. So I chose to assign a 60-character literal
-string to a char pointer and we use this as the buffer.
+현재 컴파일러는 `char buf[60];`과 같은 선언을 허용하지만 `buf` 자체를 char 포인터로 사용할 수 없다. 그래서 60자 길이의 리터럴 문자열을 char 포인터에 할당하고 이를 버퍼로 사용했다.
 
-We still also have to wrap IF and WHILE bodies with '{' ... '}' to make
-them compound statements: I still haven't dealt with the dangling else
-problem. Finally, we can't accept `char *argv[]` as a parameter declaration
-for main yet, so I've had to hard-code the input file's name.
+또한 IF와 WHILE 본문을 '{' ... '}'로 감싸 복합문으로 만들어야 한다. 아직 'dangling else' 문제를 해결하지 못했다. 마지막으로, `main()` 함수의 인자로 `char *argv[]`를 선언할 수 없으므로 입력 파일 이름을 하드코딩했다.
 
-Still, we now have a very primitive *cat(1)* program which our compiler
-can compile! That's progress.
+그럼에도 불구하고, 이제 우리 컴파일러가 컴파일할 수 있는 매우 기본적인 *cat(1)* 프로그램을 갖게 되었다. 이는 분명한 진전이다.
 
 
-## Conclusion and What's Next
+## 결론과 다음 단계
 
-In the next part of our compiler writing journey, I'll follow up on
-a comment above and improve the testing of our compiler's functionality. [Next step](../27_Testing_Errors/Readme.md)
+컴파일러 작성 여정의 다음 단계에서는 앞서 언급한 내용을 바탕으로 컴파일러 기능 테스트를 개선할 예정이다. [다음 단계](../27_Testing_Errors/Readme.md)
+
+

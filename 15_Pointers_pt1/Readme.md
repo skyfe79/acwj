@@ -1,27 +1,22 @@
-# Part 15: Pointers, part 1
+# 15부: 포인터, 1부
 
-In this part of our compiler writing journey, I want
-to begin the work to add pointers to our language.
-In particular, I want to add this:
+컴파일러 개발 여정의 이번 파트에서는 언어에 포인터를 추가하는 작업을 시작한다. 특히 다음 기능을 구현할 계획이다:
 
- + Declaration of pointer variables
- + Assignment of an address to a pointer
- + Dereferencing a pointer to get the value it points at
++ 포인터 변수 선언
++ 포인터에 주소 할당
++ 포인터가 가리키는 값을 역참조
 
-Given that this is a work in progress, I'm sure I will
-implement a simplistic version that works for now, but
-later on I will have to change or extend it for  to be
-more general.
+이 작업은 아직 진행 중이므로, 지금은 단순한 버전으로 구현할 것이다. 하지만 나중에 더 일반적으로 확장하거나 변경해야 할 부분이 생길 것이다.
 
-## New Keywords and Tokens
 
-There are no new keywords this time, only two new tokens:
+## 새로운 키워드와 토큰
 
- + '&', T_AMPER, and
+이번에는 새로운 키워드가 없고, 두 가지 새로운 토큰만 추가되었다:
+
+ + '&', T_AMPER, 그리고
  + '&&', T_LOGAND
 
-We don't need T_LOGAND yet, but I might as well add this
-code to `scan()` now:
+T_LOGAND는 아직 필요하지 않지만, `scan()` 함수에 이 코드를 미리 추가해두는 것이 좋다:
 
 ```c
     case '&':
@@ -34,33 +29,28 @@ code to `scan()` now:
       break;
 ```
 
-## New Code for Types
 
-I've added some new primitive types to the language
-(in `defs.h`):
+## 새로운 타입 코드 추가
+
+언어에 몇 가지 새로운 기본 타입을 추가했다(`defs.h` 파일에 정의):
 
 ```c
-// Primitive types
+// 기본 타입
 enum {
   P_NONE, P_VOID, P_CHAR, P_INT, P_LONG,
   P_VOIDPTR, P_CHARPTR, P_INTPTR, P_LONGPTR
 };
 ```
 
-We will have new unary prefix operators:
+새로운 단항 접두사 연산자도 추가된다:
 
- + '&' to get the address of an identifier, and
- + '*' to dereference a pointer and get the value
-   it points at.
+ + '&'는 식별자의 주소를 가져오는 연산자이고,
+ + '*'는 포인터를 역참조하여 가리키는 값을 가져오는 연산자이다.
 
-The type of expression that each operator produces
-is different to the type that each works on. We need
-a couple of functions in `types.c` to make the type
-change:
+각 연산자가 생성하는 표현식의 타입은 연산자가 작동하는 타입과 다르다. 이 타입 변화를 처리하기 위해 `types.c` 파일에 두 함수를 추가한다:
 
 ```c
-// Given a primitive type, return
-// the type which is a pointer to it
+// 주어진 기본 타입에 대한 포인터 타입을 반환
 int pointer_to(int type) {
   int newtype;
   switch (type) {
@@ -74,8 +64,7 @@ int pointer_to(int type) {
   return (newtype);
 }
 
-// Given a primitive pointer type, return
-// the type which it points to
+// 주어진 기본 포인터 타입이 가리키는 타입을 반환
 int value_at(int type) {
   int newtype;
   switch (type) {
@@ -90,27 +79,23 @@ int value_at(int type) {
 }
 ```
 
-Now, where are we going to use these functions?
+이제 이 함수들을 어디에서 사용할 것인지가 궁금할 것이다.
 
-## Declaring Pointer Variables
 
-We want to be able to declare scalar variables
-and pointer variables, e.g.
+## 포인터 변수 선언
+
+스칼라 변수와 포인터 변수를 선언할 수 있도록 한다. 예를 들어 다음과 같다:
 
 ```c
   char  a; char *b;
   int   d; int  *e;
 ```
 
-We already have a function `parse_type()` in `decl.c`
-that converts the type keyword to a type. Let's extend
-it to scan the following token and change the type if
-the next token is a '*':
+이미 `decl.c` 파일에 `parse_type()` 함수가 있다. 이 함수는 타입 키워드를 타입으로 변환한다. 다음 토큰을 스캔하고, 토큰이 '*'라면 타입을 변경하도록 확장한다:
 
 ```c
-// Parse the current token and return
-// a primitive type enum value. Also
-// scan in the next token
+// 현재 토큰을 파싱하고 기본 타입 enum 값을 반환한다. 
+// 또한 다음 토큰을 스캔한다
 int parse_type(void) {
   int type;
   switch (Token.token) {
@@ -122,51 +107,46 @@ int parse_type(void) {
       fatald("Illegal type, token", Token.token);
   }
 
-  // Scan in one or more further '*' tokens 
-  // and determine the correct pointer type
+  // 하나 이상의 '*' 토큰을 스캔하고 올바른 포인터 타입을 결정한다
   while (1) {
     scan(&Token);
     if (Token.token != T_STAR) break;
     type = pointer_to(type);
   }
 
-  // We leave with the next token already scanned
+  // 다음 토큰을 이미 스캔한 상태로 종료한다
   return (type);
 }
 ```
 
-This will allow the programmer to try to do:
+이제 프로그래머가 다음과 같은 코드를 작성할 수 있다:
 
 ```c
    char *****fred;
 ```
-This will fail because `pointer_to()` can't convert
-a P_CHARPTR to a P_CHARPTRPTR (yet). But the code
-in `parse_type()` is ready to do it!
 
+현재 `pointer_to()` 함수가 P_CHARPTR를 P_CHARPTRPTR로 변환할 수 없기 때문에 이 코드는 실패한다. 하지만 `parse_type()` 함수는 이를 처리할 준비가 되어 있다!
 
-The code in `var_declaration()` now quite
-happily parses pointer variable declarations:
+`var_declaration()` 함수의 코드는 이제 포인터 변수 선언을 문제없이 파싱한다:
 
 ```c
-// Parse the declaration of a variable
+// 변수 선언을 파싱한다
 void var_declaration(void) {
   int id, type;
 
-  // Get the type of the variable
-  // which also scans in the identifier
+  // 변수의 타입을 가져온다. 
+  // 이 과정에서 식별자도 스캔한다
   type = parse_type();
   ident();
   ...
 }
 ```
 
-### Prefix Operators '*' and '&'
 
-With declarations out of the road, let's now look
-at parsing expressions where '*' and '&' are
-operators that come before an expression. The BNF
-grammar looks like this:
+### 접두사 연산자 '*'와 '&'
+
+
+선언 부분을 마쳤으니, 이제 표현식 앞에 오는 '*'와 '&' 연산자를 파싱하는 방법을 살펴보자. BNF 문법은 다음과 같다:
 
 ```
  prefix_expression: primary
@@ -175,47 +155,41 @@ grammar looks like this:
      ;
 ```
 
-Technically this allows:
+기술적으로 이 문법은 다음과 같은 표현을 허용한다:
 
 ```
    x= ***y;
    a= &&&b;
 ```
 
-To prevent impossible uses of the two operators,
-we add in some semantic checking. Here's the code:
+이 두 연산자의 불가능한 사용을 방지하기 위해, 의미 검사를 추가한다. 다음은 그 코드다:
 
 ```c
-// Parse a prefix expression and return 
-// a sub-tree representing it.
+// 접두사 표현식을 파싱하고 이를 나타내는 서브 트리를 반환한다.
 struct ASTnode *prefix(void) {
   struct ASTnode *tree;
   switch (Token.token) {
     case T_AMPER:
-      // Get the next token and parse it
-      // recursively as a prefix expression
+      // 다음 토큰을 가져오고 접두사 표현식으로 재귀적으로 파싱한다.
       scan(&Token);
       tree = prefix();
 
-      // Ensure that it's an identifier
+      // 식별자인지 확인한다.
       if (tree->op != A_IDENT)
-        fatal("& operator must be followed by an identifier");
+        fatal("& 연산자 뒤에는 식별자가 와야 한다");
 
-      // Now change the operator to A_ADDR and the type to
-      // a pointer to the original type
+      // 연산자를 A_ADDR로 변경하고 타입을 원래 타입의 포인터로 변경한다.
       tree->op = A_ADDR; tree->type = pointer_to(tree->type);
       break;
     case T_STAR:
-      // Get the next token and parse it
-      // recursively as a prefix expression
+      // 다음 토큰을 가져오고 접두사 표현식으로 재귀적으로 파싱한다.
       scan(&Token); tree = prefix();
 
-      // For now, ensure it's either another deref or an
-      // identifier
+      // 현재로서는, 또 다른 역참조 또는 식별자인지 확인한다.
       if (tree->op != A_IDENT && tree->op != A_DEREF)
-        fatal("* operator must be followed by an identifier or *");
+        fatal("* 연산자 뒤에는 식별자 또는 *가 와야 한다");
 
-      // Prepend an A_DEREF operation to the tree
+      // 트리에 A_DEREF 연산을 추가한다.
       tree = mkastunary(A_DEREF, value_at(tree->type), tree, 0);
       break;
     default:
@@ -225,15 +199,9 @@ struct ASTnode *prefix(void) {
 }
 ```
 
-We're still doing recursive descent, but we also put error
-checks in to prevent input mistakes. Right now, the limitations
-in `value_at()` will prevent more than one '*' operator in a row,
-but later on when we change `value_at()`, we won't have to come
-back and change `prefix()`.
+여전히 재귀 하강 파싱을 사용하지만, 입력 오류를 방지하기 위해 오류 검사를 추가했다. 현재 `value_at()`의 제한으로 인해 연속된 '*' 연산자를 하나 이상 사용할 수 없지만, 나중에 `value_at()`을 변경할 때 `prefix()`를 다시 수정할 필요는 없다.
 
-Note that `prefix()` also calls `primary()` when it doesn't see
-a '*' or '&' operator. That allows us to change our existing code
-in `binexpr()`:
+`prefix()`는 '*' 또는 '&' 연산자를 발견하지 못했을 때 `primary()`를 호출한다는 점에 주목하자. 이는 `binexpr()`에서 기존 코드를 변경할 수 있게 해준다:
 
 ```c
 struct ASTnode *binexpr(int ptp) {
@@ -241,31 +209,28 @@ struct ASTnode *binexpr(int ptp) {
   int lefttype, righttype;
   int tokentype;
 
-  // Get the tree on the left.
-  // Fetch the next token at the same time.
-  // Used to be a call to primary().
+  // 왼쪽 트리를 가져온다.
+  // 동시에 다음 토큰을 가져온다.
+  // 이전에는 primary() 호출이었다.
   left = prefix();
   ...
 }
 ```
 
-## New AST Node Types
 
-Up in `prefix()` I introduced two new AST node types
-(declared in `defs.h`):
+## 새로운 AST 노드 타입
+
+`prefix()` 함수에서 두 가지 새로운 AST 노드 타입을 도입했다. 이 타입들은 `defs.h` 파일에 선언되어 있다:
+
++ **A_DEREF**: 자식 노드의 포인터를 역참조한다.
++ **A_ADDR**: 이 노드에 있는 식별자의 주소를 가져온다.
+
+A_ADDR 노드는 부모 노드가 아니다. 예를 들어 `&fred`라는 표현식에서 `prefix()` 함수는 "fred" 노드의 A_IDENT를 A_ADDR 노드 타입으로 교체한다.
 
 
- + A_DEREF: Dereference the pointer in the child node
- + A_ADDR: Get the address of the identifier in this node
+## 새로운 어셈블리 코드 생성하기
 
-Note that the A_ADDR node isn't a parent node. For the
-expression `&fred`, the code in `prefix()` replaces
-the A_IDENT in the "fred" node with the A_ADDR node type.
-
-## Generating the New Assembly Code
-
-In our generic code generator, `gen.c`, there are only
-a few new lines to `genAST()`:
+일반적인 코드 생성기인 `gen.c`에서 `genAST()` 함수에 추가된 코드는 몇 줄에 불과하다:
 
 ```c
     case A_ADDR:
@@ -274,21 +239,15 @@ a few new lines to `genAST()`:
       return (cgderef(leftreg, n->left->type));
 ```
 
-The A_ADDR node generates the code to load the
-address of the `n->v.id` identifier into a register.
-The A_DEREF node take the pointer address in `lefreg`,
-and its associated type, and returns a register with
-the value at this address.
+A_ADDR 노드는 `n->v.id` 식별자의 주소를 레지스터에 로드하는 코드를 생성한다. A_DEREF 노드는 `leftreg`에 있는 포인터 주소와 해당 타입을 가져와 이 주소에 있는 값을 담은 레지스터를 반환한다.
 
-### x86-64 Implementation
 
-I worked out the following assembly output by reviewing
-the assembly code generated by other compilers. It
-might not be correct!
+### x86-64 구현
+
+다른 컴파일러가 생성한 어셈블리 코드를 검토하여 다음 어셈블리 출력을 작성했다. 이 코드가 정확하지 않을 수도 있다.
 
 ```c
-// Generate code to load the address of a global
-// identifier into a variable. Return a new register
+// 전역 식별자의 주소를 변수에 로드하는 코드를 생성한다. 새로운 레지스터를 반환한다.
 int cgaddress(int id) {
   int r = alloc_register();
 
@@ -296,8 +255,7 @@ int cgaddress(int id) {
   return (r);
 }
 
-// Dereference a pointer to get the value it
-// pointing at into the same register
+// 포인터를 역참조하여 가리키는 값을 동일한 레지스터에 로드한다.
 int cgderef(int r, int type) {
   switch (type) {
     case P_CHARPTR:
@@ -312,14 +270,12 @@ int cgderef(int r, int type) {
 }
 ```
 
-The `leaq` instruction loads the address of the named identifier.
-In the section function, the `(%r8)` syntax loads the value that
-register `%r8` points to.
+`leaq` 명령어는 지정된 식별자의 주소를 로드한다. `cgderef` 함수에서 `(%r8)` 구문은 `%r8` 레지스터가 가리키는 값을 로드한다.
 
-## Testing the New Functinality
 
-Here's our new test file, `tests/input15.c` and the result when we
-compile it:
+## 새로운 기능 테스트
+
+새로운 테스트 파일인 `tests/input15.c`와 이를 컴파일한 결과는 다음과 같다:
 
 ```c
 int main() {
@@ -349,17 +305,12 @@ cc -o out out.s lib/printint.c
 12
 ```
 
-I decided to change our test files to end with the `.c`
-suffix, now that they are actually C programs. I also
-changed the `tests/mktests` script to generate the
-*correct* results by using a "real" compiler to
-compile our test files.
+이제 테스트 파일들이 실제 C 프로그램이 되었으므로 파일 확장자를 `.c`로 변경했다. 또한 `tests/mktests` 스크립트를 수정해 "실제" 컴파일러를 사용해 테스트 파일을 컴파일하고 올바른 결과를 생성하도록 했다.
 
-## Conclusion and What's Next
 
-Well, we have the start of pointers implemented. They
-are not completely correct yet. For example, if I write
-this code:
+## 결론과 다음 단계
+
+지금까지 포인터의 기본적인 구현을 마쳤다. 하지만 아직 완벽하지는 않다. 예를 들어, 다음과 같은 코드를 작성하면:
 
 ```c
 int main() {
@@ -371,11 +322,8 @@ int main() {
 }
 ```
 
-it should print 20 because `&x + 1` should address
-one `int` past `x`, i.e. `y`. This is eight bytes
-away from `x`. However, our compiler simply adds
-one to the address of `x`, which is incorrect. I'll
-have to work out how to fix this.
+이 코드는 20을 출력해야 한다. 왜냐하면 `&x + 1`은 `x`의 다음 `int` 위치, 즉 `y`를 가리켜야 하기 때문이다. `y`는 `x`에서 8바이트 떨어져 있다. 하지만 현재 컴파일러는 단순히 `x`의 주소에 1을 더할 뿐이다. 이는 잘못된 동작이다. 이 문제를 해결하는 방법을 찾아야 한다.
 
-In the next part of our compiler writing journey, we will
-try to fix this problem. [Next step](../16_Global_Vars/Readme.md)
+컴파일러 작성 여정의 다음 단계에서는 이 문제를 해결해 보자. [다음 단계](../16_Global_Vars/Readme.md)
+
+

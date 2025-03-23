@@ -1,63 +1,54 @@
-# Part 53: Mopping Up, part 2
+# 53부: 마무리 작업, 2편
 
-In this part of our compiler writing journey, I fix a few annoying things
-that we use in the compiler's own source code.
+컴파일러 작성 여정의 이번 편에서는 컴파일러 자체의 소스 코드에서 사용하는 몇 가지 번거로운 문제를 해결한다.
 
-## Consecutive String Literals
 
-C allows the declaration of string literals by splitting them across
-multiple lines or as multiple strings, e.g.
+## 연속된 문자열 리터럴
+
+C 언어는 문자열 리터럴을 여러 줄에 걸쳐 선언하거나 여러 문자열로 나눌 수 있다. 예를 들어:
 
 ```c
   char *c= "hello " "there, "
            "how " "are " "you?";
 ```
 
-Now, we could fix this problem up in the lexical scanner. However, I spent
-a lot of time trying to do this. The problem is that the code is now
-complicated with dealing with the C pre-processor, and I couldn't find a clean
-way of allowing consecutive string literals.
+이 문제를 어휘 분석기에서 해결할 수도 있다. 하지만 이를 구현하려고 많은 시간을 들였다. 문제는 C 전처리기를 다루는 과정에서 코드가 복잡해졌고, 연속된 문자열 리터럴을 허용하는 깔끔한 방법을 찾지 못했다는 점이다.
 
-My solution is to do it in the parser, with a bit of help from the code
-generator. In `primary()` in `expr.c`, the code that deals with string
-literals now looks like this:
+내가 선택한 해결책은 파서에서 처리하는 것이다. 코드 생성기의 도움을 약간 받아 `expr.c` 파일의 `primary()` 함수에서 문자열 리터럴을 다루는 코드를 다음과 같이 수정했다:
 
 ```c
   case T_STRLIT:
-    // For a STRLIT token, generate the assembly for it.
-    id = genglobstr(Text, 0);   // 0 means generate a label
+    // STRLIT 토큰에 대해 어셈블리 코드를 생성한다.
+    id = genglobstr(Text, 0);   // 0은 레이블을 생성하라는 의미
 
-    // For successive STRLIT tokens, append their contents
-    // to this one
+    // 연속된 STRLIT 토큰이 있다면 그 내용을 현재 문자열에 추가한다.
     while (1) {
       scan(&Peektoken);
       if (Peektoken.token != T_STRLIT) break;
-      genglobstr(Text, 1);      // 1 means don't generate a label
-      scan(&Token);             // Skip it
+      genglobstr(Text, 1);      // 1은 레이블을 생성하지 말라는 의미
+      scan(&Token);             // 토큰을 건너뛴다.
     }
 
-    // Now make a leaf AST node for it. id is the string's label.
+    // 이제 리프 AST 노드를 생성한다. id는 문자열의 레이블이다.
     genglobstrend();
     n = mkastleaf(A_STRLIT, pointer_to(P_CHAR), NULL, NULL, id);
     break;
 ```
 
-`genglobstr()` now takes a second argument which tells it if this
-is the first part of the string or a successive part of the string.
-Also, `genglobstrend()` now has the job of NUL terminating the string literal.
+`genglobstr()` 함수는 이제 두 번째 인자를 받는다. 이 인자는 이 문자열이 첫 번째 부분인지, 아니면 연속된 부분인지를 알려준다. 또한 `genglobstrend()` 함수는 문자열 리터럴을 NUL로 종료하는 역할을 한다.
 
-## Empty Statements
 
-C allows both empty statements and empty compound statements, e.g.
+## 빈 문장
+
+C 언어는 빈 문장과 빈 복합 문장을 모두 허용한다. 예를 들어:
 
 ```c
-  while ((c=getc()) != 'x') ;           // ';' is an empty statement
+  while ((c=getc()) != 'x') ;           // ';'는 빈 문장이다
 
-  int fred() { }                        // Function with empty body
+  int fred() { }                        // 빈 본문을 가진 함수
 ```
 
-and I use both of these in the compiler, so we need to support both of them.
-In `stmt.c`, the code now does this:
+컴파일러에서 이 두 가지를 모두 사용하므로, 두 경우를 모두 지원해야 한다. `stmt.c` 파일에서 이제 다음과 같이 처리한다:
 
 ```c
 static struct ASTnode *single_statement(void) {
@@ -66,7 +57,7 @@ static struct ASTnode *single_statement(void) {
 
   switch (Token.token) {
     case T_SEMI:
-      // An empty statement
+      // 빈 문장 처리
       semi();
       break;
     ...
@@ -79,8 +70,7 @@ struct ASTnode *compound_statement(int inswitch) {
   struct ASTnode *tree;
 
   while (1) {
-    // Leave if we've hit the end token. We do this first to allow
-    // an empty compound statement
+    // 끝 토큰을 만나면 종료한다. 빈 복합 문장을 허용하기 위해 먼저 확인한다
     if (Token.token == T_RBRACE)
       return (left);
     ...
@@ -89,68 +79,58 @@ struct ASTnode *compound_statement(int inswitch) {
 }
 ```
 
-and that fixes both shortcomings.
+이렇게 하면 두 가지 문제점을 모두 해결할 수 있다.
 
-## Redeclared Symbols
 
-C allows a global variable to later be declared extern, and an extern
-variable to be declared later as a global variable, and vice versa.
-However, the types of both
-declarations have to match. We also want to ensure that only one
-version of the symbol ends up in the symbol table: we don't want both a
-C_GLOBAL and a C_EXTERN entry!
+## 재선언된 심볼
 
-In `stmt.c` I've added a new function called `is_new_symbol()`. We call this
-after we have parsed the name of a variable and after we have tried
-to find it in the symbol table. Thus, `sym` may be NULL (no existing
-variable) or not NULL (is an existing variable).
+C 언어에서는 전역 변수를 나중에 `extern`으로 선언하거나, `extern` 변수를 나중에 전역 변수로 재선언할 수 있다. 하지만 두 선언의 타입은 반드시 일치해야 한다. 또한 심볼 테이블에 하나의 심볼만 남도록 해야 한다. C_GLOBAL과 C_EXTERN 항목이 동시에 존재하면 안 된다.
 
-If the symbol exists, it's actually quite complicated to ensure that
-it's a safe redeclaration.
+`stmt.c` 파일에 `is_new_symbol()`이라는 새로운 함수를 추가했다. 이 함수는 변수 이름을 파싱하고 심볼 테이블에서 해당 변수를 찾은 후에 호출한다. 따라서 `sym`은 NULL일 수도 있고(기존 변수가 없는 경우), NULL이 아닐 수도 있다(기존 변수가 존재하는 경우).
+
+심볼이 존재한다면, 안전하게 재선언할 수 있는지 확인하는 과정이 복잡하다.
 
 ```c
-// Given a pointer to a symbol that may already exist
-// return true if this symbol doesn't exist. We use
-// this function to convert externs into globals
+// 이미 존재할 수 있는 심볼에 대한 포인터가 주어졌을 때,
+// 이 심볼이 존재하지 않으면 true를 반환한다. 이 함수를 사용해
+// extern을 전역 변수로 변환한다.
 int is_new_symbol(struct symtable *sym, int class, 
                   int type, struct symtable *ctype) {
 
-  // There is no existing symbol, thus is new
+  // 기존 심볼이 없으므로 새로운 심볼이다.
   if (sym==NULL) return(1);
 
-  // global versus extern: if they match that it's not new
-  // and we can convert the class to global
+  // 전역 변수와 extern 비교: 두 경우가 일치하면 새로운 심볼이 아니며,
+  // 클래스를 전역 변수로 변환할 수 있다.
   if ((sym->class== C_GLOBAL && class== C_EXTERN)
       || (sym->class== C_EXTERN && class== C_GLOBAL)) {
 
-      // If the types don't match, there's a problem
+      // 타입이 일치하지 않으면 문제가 발생한다.
       if (type != sym->type)
         fatals("Type mismatch between global/extern", sym->name);
 
-      // Struct/unions, also compare the ctype
+      // 구조체/공용체의 경우, ctype도 비교한다.
       if (type >= P_STRUCT && ctype != sym->ctype)
         fatals("Type mismatch between global/extern", sym->name);
 
-      // If we get to here, the types match, so mark the symbol
-      // as global
+      // 여기까지 도달하면 타입이 일치하므로 심볼을 전역 변수로 표시한다.
       sym->class= C_GLOBAL;
-      // Return that symbol is not new
+      // 심볼이 새로운 것이 아니라고 반환한다.
       return(0);
   }
 
-  // It must be a duplicate symbol if we get here
+  // 여기까지 도달했다면 중복된 심볼이다.
   fatals("Duplicate global variable declaration", sym->name);
-  return(-1);   // Keep -Wall happy
+  return(-1);   // -Wall 경고를 피하기 위해 반환한다.
 }
 ```
 
-The code is straight-forward but not elegant. Also note that any redeclared
-extern symbol is turned into a global symbol. This means we don't have to
-remove the symbol from the symbol table and add in a new, global, symbol.
+이 코드는 직관적이지만 우아하지는 않다. 또한 재선언된 `extern` 심볼은 전역 심볼로 변환된다. 이는 심볼 테이블에서 심볼을 제거하고 새로운 전역 심볼을 추가할 필요가 없게 한다.
 
-## Operand Types to Logical Operations
 
-The next bug I hit was something like this:
+## 논리 연산의 피연산자 타입
+
+다음으로 발견한 버그는 다음과 같은 코드에서 발생했다.
 
 ```c
   int *x;
@@ -159,15 +139,9 @@ The next bug I hit was something like this:
   if (x && y > 12) ...
 ```
 
-The compiler evaluates the `&&` operation in `binexpr()`. To do this,
-it ensures that the types of each side of the binary operator are
-compatible. Well, if the operator above was a `+` then, definitely,
-the types are incompatible. But with a logical comparison, we can
-*AND* these together.
+컴파일러는 `binexpr()` 함수 내에서 `&&` 연산을 평가한다. 이를 위해 컴파일러는 이항 연산자의 양쪽 피연산자 타입이 호환되는지 확인한다. 만약 위 연산자가 `+`라면, 두 타입은 명백히 호환되지 않는다. 하지만 논리 비교 연산의 경우, 두 값을 *AND* 연산으로 결합할 수 있다.
 
-I've fixed this by adding some more code to the top of `modify_type()`
-in `types.c`. If we are doing an `&&` or an `||` operation, then
-we need either integer or pointer types on each side of the operation.
+이 문제를 해결하기 위해 `types.c` 파일의 `modify_type()` 함수 상단에 코드를 추가했다. `&&` 또는 `||` 연산을 수행할 때, 연산자의 양쪽 피연산자는 정수 타입이나 포인터 타입이어야 한다.
 
 ```c
 struct ASTnode *modify_type(struct ASTnode *tree, int rtype,
@@ -177,7 +151,7 @@ struct ASTnode *modify_type(struct ASTnode *tree, int rtype,
 
   ltype = tree->type;
 
-  // For A_LOGOR and A_LOGAND, both types have to be int or pointer types
+  // A_LOGOR와 A_LOGAND의 경우, 양쪽 타입이 정수 타입이나 포인터 타입이어야 함
   if (op==A_LOGOR || op==A_LOGAND) {
     if (!inttype(ltype) && !ptrtype(ltype))
       return(NULL);
@@ -189,58 +163,50 @@ struct ASTnode *modify_type(struct ASTnode *tree, int rtype,
 }
 ```
 
-I've also realised that I've implemented `&&` and `||` incorrectly, so
-I'll have to fix that. Now now, but soon.
+또한 `&&`와 `||` 연산을 잘못 구현했다는 사실을 깨달았기 때문에, 이 부분도 수정해야 한다. 당장은 아니지만, 곧 고칠 예정이다.
 
-## Return with No Value
 
-One other C feature that is missing is the ability to return from a
-void function, i.e. just leave without returning any value. However,
-the current parser expects to see parentheses and an expression after
-the `return` keyword.
+## 값을 반환하지 않는 경우
 
-So, in `return_statement()` in `stmt.c`, we now have:
+C 언어에는 void 함수에서 값을 반환하지 않고 그냥 빠져나가는 기능이 있다. 하지만 현재 파서는 `return` 키워드 뒤에 괄호와 표현식이 오는 것을 기대한다.
+
+`stmt.c` 파일의 `return_statement()` 함수는 다음과 같이 수정했다:
 
 ```c
-// Parse a return statement and return its AST
+// return 문을 파싱하고 AST를 반환한다
 static struct ASTnode *return_statement(void) {
   struct ASTnode *tree= NULL;
 
-  // Ensure we have 'return'
+  // 'return' 키워드가 있는지 확인한다
   match(T_RETURN, "return");
 
-  // See if we have a return value
+  // 반환 값이 있는지 확인한다
   if (Token.token == T_LPAREN) {
-    // Code to parse the parentheses and the expression
+    // 괄호와 표현식을 파싱하는 코드
     ...
   } else {
     if (Functionid->type != P_VOID)
-      fatal("Must return a value from a non-void function");
+      fatal("void 함수가 아닌 경우 반드시 값을 반환해야 한다");
   }
 
-
-    // Add on the A_RETURN node
+    // A_RETURN 노드를 추가한다
   tree = mkastunary(A_RETURN, P_NONE, NULL, tree, NULL, 0);
 
-  // Get the ';'
+  // 세미콜론을 확인한다
   semi();
   return (tree);
 }
 ```
 
-If the `return` token isn't followed by a left parenthesis, we leave the
-expression `tree` set to NULL. We also check that this is a void returning
-function, and print out a fatal error if not.
+`return` 토큰 뒤에 왼쪽 괄호가 없으면 `tree` 표현식을 NULL로 설정한다. 또한 현재 함수가 void 형식인지 확인하고, 그렇지 않으면 치명적 오류를 출력한다.
 
-Now that we have parsed the `return` function, we may create an A_RETURN
-AST node with a NULL child. So now we have to deal with this in the code
-generator. The top of `cgreturn()` in `cg.c` now has:
+이제 `return` 함수를 파싱했으므로 NULL 자식을 가진 A_RETURN AST 노드를 생성할 수 있다. 이제 코드 생성기에서 이를 처리해야 한다. `cg.c` 파일의 `cgreturn()` 함수 상단은 다음과 같다:
 
 ```c
-// Generate code to return a value from a function
+// 함수에서 값을 반환하는 코드를 생성한다
 void cgreturn(int reg, struct symtable *sym) {
 
-  // Only return a value if we have a value to return
+  // 반환할 값이 있는 경우에만 값을 반환한다
   if (reg != NOREG) {
     ..
   }
@@ -249,22 +215,15 @@ void cgreturn(int reg, struct symtable *sym) {
 }
 ```
 
-If there was no child AST tree, then there is no register with the
-expression's value. Thus, we only output the jump to the function's
-end label.
+자식 AST 트리가 없으면 표현식의 값을 담은 레지스터가 없다. 따라서 함수의 종료 레이블로 점프하는 코드만 출력한다.
 
 
-## Conclusion and What's Next
+## 결론 및 다음 단계
 
-We've fixed five minor issues in the compiler: things that we need to work to get
-the compiler to compile itself.
+컴파일러에서 다섯 가지 사소한 문제를 해결했다. 이 문제들은 컴파일러가 스스로를 컴파일할 수 있도록 하기 위해 반드시 고쳐야 할 것들이다.
 
-I did identify a problem with `&&` and `||`. However, before we get to
-that I need to solve an important, pressing, problem: we have a limited
-set of CPU registers and, for large source files, we are running out of
-them.
+`&&`와 `||` 연산자와 관련된 문제도 확인했다. 하지만 이를 해결하기 전에 더 시급한 문제를 먼저 처리해야 한다. 사용 가능한 CPU 레지스터가 제한적이기 때문에, 큰 소스 파일을 컴파일할 때 레지스터가 부족한 상황이 발생한다.
 
-In the next part of our compiler writing journey, I will have to work
-on implementing register spills. I've been delaying this, but now most of
-the fatal errors from the compiler (when compiling itself) are register
-issues. So now it's time to sort this out. [Next step](../54_Reg_Spills/Readme.md)
+컴파일러 개발 과정의 다음 단계에서는 레지스터 스필(register spills)을 구현해야 한다. 이 작업을 미뤄왔지만, 이제는 컴파일러가 스스로를 컴파일할 때 발생하는 치명적인 오류 대부분이 레지스터 관련 문제다. 따라서 이 문제를 해결할 때가 되었다. [다음 단계](../54_Reg_Spills/Readme.md)
+
+

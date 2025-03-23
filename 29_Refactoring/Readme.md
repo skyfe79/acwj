@@ -1,98 +1,66 @@
-# Part 29: A Bit of Refactoring
+# 29장: 코드 리팩토링
 
-I started thinking about the design side of implementing structs, unions
-and enums in our compiler, and then I had a good idea on how to improve
-the symbol table, and that led me to doing a bit of refactoring of the
-compiler's code. So in this part of the journey there is no new functionality,
-but I feel a bit happier about some of the code in the compiler.
+구조체(struct), 공용체(union), 열거형(enum)을 컴파일러에 구현하는 과정에서 디자인 측면을 고민하다가, 심볼 테이블을 개선할 좋은 아이디어가 떠올랐다. 이 아이디어를 바탕으로 컴파일러 코드를 약간 리팩토링했다. 이번 장에서는 새로운 기능을 추가하지는 않았지만, 컴파일러의 일부 코드가 더 나아져서 만족스럽다.
 
-If you are more interested in my design ideas for structs, unions
-and enums, feel free to skip to the next part.
+구조체, 공용체, 열거형에 대한 디자인 아이디어가 더 궁금하다면 다음 장으로 넘어가도 좋다.
 
-## Refactoring the Symbol Table
 
-When I started writing our compiler, I had just finished reading through
-the [SubC](http://www.t3x.org/subc/) compiler's code and adding my own
-comments. Thus, I borrowed many of my initial ideas from this code base.
-One of them was to have an array of elements for the symbol table, with
-global symbols at one end and local symbols at the other.
+## 심볼 테이블 리팩토링
 
-We've seen, for function prototypes and parameters, that we have to copy
-a function's prototype from the global end over to the local end so that
-the function has local parameter variables. And we have to worry if
-one end of the symbol table crashes into the other end.
+컴파일러를 작성하기 시작했을 때, 나는 방금 [SubC](http://www.t3x.org/subc/) 컴파일러의 코드를 읽고 나만의 주석을 추가한 상태였다. 그래서 초기 아이디어 중 상당수를 이 코드베이스에서 차용했다. 그 중 하나는 심볼 테이블을 배열로 구성하고, 한쪽 끝에는 전역 심볼을, 다른 쪽 끝에는 지역 심볼을 배치하는 방식이었다.
 
-So, at some point, we should convert the symbol table into a number of
-singly-linked lists: at least one for the global symbols and one for the
-local symbols. When we get to implementing enums, I might have a third one
-for the enum values.
+함수 프로토타입과 매개변수를 다룰 때, 함수의 프로토타입을 전역 끝에서 지역 끝으로 복사해야 한다는 것을 확인했다. 이렇게 해야 함수가 지역 매개변수 변수를 가질 수 있다. 또한 심볼 테이블의 한쪽 끝이 다른 쪽 끝과 충돌할 가능성도 염두에 두어야 한다.
 
-Now, I haven't done this refactoring in this part of the journey as the
-changes look to be substantial, so I'll wait until I really need to do it.
-But one more change I will make is this. Each symbol node will have a `next`
-pointer to form the singly-linked list, but also a `param` pointer. This
-will allow functions to have a separate singly-linked list for their
-parameters which we can skip past when searching for global symbols.
-Then, when we need to "copy" a function's prototype to be its list of
-parameters, we can simply copy the pointer to the prototype list of parameters.
-Anyway, this change is for the future.
+따라서 언젠가는 심볼 테이블을 단일 연결 리스트(singly-linked list)로 변환해야 한다. 최소한 전역 심볼을 위한 하나의 리스트와 지역 심볼을 위한 또 다른 리스트가 필요하다. 열거형(enum)을 구현할 때가 되면, 열거형 값을 위한 세 번째 리스트도 추가할 것이다.
 
-## Types, Revisited
+아직 이 부분에서 리팩토링을 진행하지는 않았다. 변경 사항이 상당히 많아 보이기 때문에, 실제로 필요할 때까지 기다리기로 했다. 하지만 앞으로 할 변경 사항 중 하나는 다음과 같다. 각 심볼 노드는 단일 연결 리스트를 형성하기 위한 `next` 포인터를 가질 뿐만 아니라, `param` 포인터도 가질 것이다. 이렇게 하면 함수가 매개변수를 위한 별도의 단일 연결 리스트를 가질 수 있다. 이 리스트는 전역 심볼을 검색할 때 건너뛸 수 있다. 그리고 함수의 프로토타입을 매개변수 목록으로 "복사"해야 할 때, 단순히 프로토타입 매개변수 리스트에 대한 포인터를 복사하면 된다. 어쨌든, 이 변경은 미래의 작업이다.
 
-Another thing that I borrowed from SubC is the enumeration of types
-(in `defs.h`):
+
+## 타입 재고찰
+
+SubC에서 가져온 또 다른 개념은 타입 열거다(`defs.h`에 정의됨):
 
 ```c
-// Primitive types
+// 기본 타입
 enum {
   P_NONE, P_VOID, P_CHAR, P_INT, P_LONG,
   P_VOIDPTR, P_CHARPTR, P_INTPTR, P_LONGPTR
 };
 ```
 
-SubC only allows one level of indirection, thus the list of types above.
-I had the idea, why not encode the level of indirection in the primitive type
-value? So I've changed our code so that the bottom four bits in a `type`
-integer is the level of indirection, and the higher bits encode the
-actual type:
+SubC는 한 단계의 간접 참조만 허용하므로 위와 같은 타입 목록을 사용한다. 여기서 아이디어를 얻어, 기본 타입 값에 간접 참조 수준을 인코딩하면 어떨까 생각했다. 그래서 코드를 변경해 `type` 정수의 하위 4비트는 간접 참조 수준을 나타내고, 상위 비트는 실제 타입을 인코딩하도록 했다:
 
 ```c
-// Primitive types. The bottom 4 bits is an integer
-// value that represents the level of indirection,
-// e.g. 0= no pointer, 1= pointer, 2= pointer pointer etc.
+// 기본 타입. 하위 4비트는 간접 참조 수준을 나타내는 정수 값이다.
+// 예: 0= 포인터 없음, 1= 포인터, 2= 포인터의 포인터 등.
 enum {
   P_NONE, P_VOID=16, P_CHAR=32, P_INT=48, P_LONG=64
 };
 ```
 
-I've been able to completely refactor out all of the old `P_XXXPTR`
-references in the old code. Let's see what changes there have been.
+이 변경으로 기존 코드에서 모든 `P_XXXPTR` 참조를 완전히 리팩토링할 수 있었다. 어떤 변화가 있었는지 살펴보자.
 
-Firstly, we have to deal with scalar and pointer types in `types.c`. The code
-now is actually smaller than before:
+먼저, `types.c`에서 스칼라 타입과 포인터 타입을 처리해야 한다. 이제 코드가 이전보다 더 간결해졌다:
 
 ```c
-// Return true if a type is an int type
-// of any size, false otherwise
+// 타입이 어떤 크기의 정수 타입이면 true를 반환하고, 그렇지 않으면 false를 반환한다.
 int inttype(int type) {
   return ((type & 0xf) == 0);
 }
 
-// Return true if a type is of pointer type
+// 타입이 포인터 타입이면 true를 반환한다.
 int ptrtype(int type) {
   return ((type & 0xf) != 0);
 }
 
-// Given a primitive type, return
-// the type which is a pointer to it
+// 기본 타입이 주어지면, 해당 타입의 포인터 타입을 반환한다.
 int pointer_to(int type) {
   if ((type & 0xf) == 0xf)
     fatald("Unrecognised in pointer_to: type", type);
   return (type + 1);
 }
 
-// Given a primitive pointer type, return
-// the type which it points to
+// 기본 포인터 타입이 주어지면, 해당 포인터가 가리키는 타입을 반환한다.
 int value_at(int type) {
   if ((type & 0xf) == 0x0)
     fatald("Unrecognised in value_at: type", type);
@@ -100,22 +68,18 @@ int value_at(int type) {
 }
 ```
 
-And `modify_type()` hasn't changed whatsoever.
+`modify_type()`은 전혀 변경되지 않았다.
 
-In `expr.c`, when dealing with literal strings, I was using `P_CHARPTR`
-but now I can write:
+`expr.c`에서 리터럴 문자열을 처리할 때, 이전에는 `P_CHARPTR`를 사용했지만 이제는 다음과 같이 작성할 수 있다:
 
 ```c
    n = mkastleaf(A_STRLIT, pointer_to(P_CHAR), id);
 ```
 
-One other substantial area where the `P_XXXPTR` values were used is the code
-in the hardware-dependent code in `cg.c`. We start by rewriting `cgprimsize()`
-to use `ptrtype()`:
+`P_XXXPTR` 값이 사용된 또 다른 주요 영역은 `cg.c`의 하드웨어 의존 코드다. 먼저 `cgprimsize()`를 `ptrtype()`을 사용하도록 다시 작성했다:
 
 ```c
-// Given a P_XXX type value, return the
-// size of a primitive type in bytes.
+// P_XXX 타입 값이 주어지면, 기본 타입의 크기를 바이트 단위로 반환한다.
 int cgprimsize(int type) {
   if (ptrtype(type)) return (8);
   switch (type) {
@@ -128,20 +92,16 @@ int cgprimsize(int type) {
 }
 ```
 
-With this code, the other functions in `cg.c` can
-now call `cgprimsize()`, `ptrtype()`,
-`inttype()`, `pointer_to()` and `value_at()` as required, instead of
-referring to specific types. Here's an example from `cg.c`:
+이 코드를 통해 `cg.c`의 다른 함수들은 이제 특정 타입을 참조하는 대신 필요에 따라 `cgprimsize()`, `ptrtype()`, `inttype()`, `pointer_to()`, `value_at()`을 호출할 수 있다. `cg.c`의 예를 살펴보자:
 
 ```c
-// Dereference a pointer to get the value it
-// pointing at into the same register
+// 포인터를 역참조해 가리키는 값을 동일한 레지스터로 가져온다.
 int cgderef(int r, int type) {
 
-  // Get the type that we are pointing to
+  // 가리키는 타입을 얻는다.
   int newtype = value_at(type);
 
-  // Now get the size of this type
+  // 이 타입의 크기를 얻는다.
   int size = cgprimsize(newtype);
 
   switch (size) {
@@ -162,12 +122,12 @@ int cgderef(int r, int type) {
 }
 ```
 
-Have a quick read through `cg.c` and look for the calls to `cgprimsize()`.
+`cg.c`를 빠르게 읽어보고 `cgprimsize()` 호출을 찾아보자.
 
-### An Example Use of Double Pointers
 
-Now that we have up to sixteen levels of indirection, I wrote a test program
-to confirm that they work, `tests/input55.c`:
+### 이중 포인터 사용 예제
+
+이제 최대 16단계의 간접 참조가 가능해졌으므로, 이를 확인하기 위해 테스트 프로그램 `tests/input55.c`를 작성했다:
 
 ```c
 int printf(char *fmt);
@@ -185,78 +145,69 @@ int main(int argc, char **argv) {
 }
 ```
 
-Note that `argv++` doesn't yet work, and `argv[i]` also doesn't yet work.
-But we can work around these missing features as shown above.
+현재 `argv++`와 `argv[i]`는 아직 동작하지 않는다. 하지만 위 예제에서 보듯이, 이러한 기능이 없더라도 문제를 해결할 수 있다.
 
-## Changes to the Symbol Table Structure
 
-While I didn't refactor the symbol table into lists, I did tweak the
-symbol table structure itself, now that I realised that I can use
-unions and not have to give the union a variable name:
+## 심볼 테이블 구조 변경
+
+심볼 테이블을 리스트로 리팩토링하지는 않았지만, 심볼 테이블 구조 자체를 약간 수정했다. 이제는 union을 사용할 수 있고, union에 변수 이름을 부여할 필요가 없다는 것을 깨달았다.
 
 ```c
-// Symbol table structure
+// 심볼 테이블 구조
 struct symtable {
-  char *name;                   // Name of a symbol
-  int type;                     // Primitive type for the symbol
-  int stype;                    // Structural type for the symbol
-  int class;                    // Storage class for the symbol
+  char *name;                   // 심볼의 이름
+  int type;                     // 심볼의 기본 타입
+  int stype;                    // 심볼의 구조적 타입
+  int class;                    // 심볼의 저장 클래스
   union {
-    int size;                   // Number of elements in the symbol
-    int endlabel;               // For functions, the end label
+    int size;                   // 심볼의 요소 개수
+    int endlabel;               // 함수의 경우, 종료 라벨
   };
   union {
-    int nelems;                 // For functions, # of params
-    int posn;                   // For locals, the negative offset
-                                // from the stack base pointer
+    int nelems;                 // 함수의 경우, 매개변수 개수
+    int posn;                   // 지역 변수의 경우, 스택 베이스 포인터에서의 음수 오프셋
   };
 };
 ```
 
-I used to have a `#define` for `nelems`, but the above is the same result and
-prevents the global definition of `nelems` from polluting the namespace. I
-also realised that `size` and `endlabel` could occupy the same position in the
-structure, and added that union. There are a few cosmetic changes to the
-parameters to `addglob()`, but not much else.
+이전에는 `nelems`를 위해 `#define`을 사용했지만, 위 구조는 동일한 결과를 제공하면서도 `nelems`의 전역 정의가 네임스페이스를 오염시키는 것을 방지한다. 또한 `size`와 `endlabel`이 구조체 내에서 같은 위치를 차지할 수 있다는 것을 깨닫고, 해당 union을 추가했다. `addglob()` 함수의 매개변수에 몇 가지 미관상의 변경이 있지만, 그 외에는 큰 변화가 없다.
 
-## Changes to the AST Structure
 
-Similarly, I've modified the AST node structure so that the union doesn't
-have a variable name:
+## AST 구조 변경
+
+마찬가지로, AST 노드 구조를 수정하여 공용체(union)에 변수 이름을 사용하지 않도록 했다:
 
 ```c
-// Abstract Syntax Tree structure
+// 추상 구문 트리 구조
 struct ASTnode {
-  int op;                       // "Operation" to be performed on this tree
-  int type;                     // Type of any expression this tree generates
-  int rvalue;                   // True if the node is an rvalue
-  struct ASTnode *left;         // Left, middle and right child trees
+  int op;                       // 이 트리에서 수행할 "연산"
+  int type;                     // 이 트리가 생성하는 표현식의 타입
+  int rvalue;                   // 노드가 rvalue인지 여부
+  struct ASTnode *left;         // 왼쪽, 중간, 오른쪽 자식 트리
   struct ASTnode *mid;
   struct ASTnode *right;
-  union {                       // For A_INTLIT, the integer value
-    int intvalue;               // For A_IDENT, the symbol slot number
-    int id;                     // For A_FUNCTION, the symbol slot number
-    int size;                   // For A_SCALE, the size to scale by
-  };                            // For A_FUNCCALL, the symbol slot number
+  union {                       // A_INTLIT인 경우 정수 값
+    int intvalue;               // A_IDENT인 경우 심볼 슬롯 번호
+    int id;                     // A_FUNCTION인 경우 심볼 슬롯 번호
+    int size;                   // A_SCALE인 경우 스케일링할 크기
+  };                            // A_FUNCCALL인 경우 심볼 슬롯 번호
 };
 ```
 
-and this means that I can, e.g., write the second line instead of the first
-one:
+이 변경으로 인해, 예를 들어 첫 번째 줄 대신 두 번째 줄과 같이 코드를 작성할 수 있다:
 
 ```c
-    return (cgloadglob(n->left->v.id, n->op));    // Old code
-    return (cgloadglob(n->left->id,   n->op));    // New code
+    return (cgloadglob(n->left->v.id, n->op));    // 이전 코드
+    return (cgloadglob(n->left->id,   n->op));    // 새로운 코드
 ```
-## Conclusion and What's Next
 
-That's about it for this part of our compiler writing journey. I might
-have done a few more small code changes here and there, but I can't
-think of anything else that was major.
 
-I will get to changing the symbol table to be a linked list; this will
-probably happen in the part where we implement enumerated values.
+## 결론 및 다음 단계
 
-In the next part of our compiler writing journey, I'll get back to
-what I wanted to cover in this part: the design side of implementing
-structs, unions and enums in our compiler. [Next step](../30_Design_Composites/Readme.md)
+컴파일러 작성 여정의 이번 파트는 여기까지다. 몇 군데 작은 코드 변경을 더 했을 수도 있지만, 큰 변화는 없었다.
+
+다음 단계에서는 심볼 테이블을 링크드 리스트로 변경할 예정이다. 이 작업은 열거형 값을 구현하는 부분에서 진행할 것이다.
+
+컴파일러 작성 여정의 다음 파트에서는 이번 파트에서 다루고 싶었던 주제인 구조체(struct), 공용체(union), 열거형(enum)을 컴파일러에 구현하는 설계 측면으로 돌아갈 것이다. [다음 단계](../30_Design_Composites/Readme.md)
+
+

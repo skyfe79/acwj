@@ -1,217 +1,136 @@
-# Part 64: Self-compilation on an 8-bit CPU
+# 64부: 8비트 CPU에서의 자기 컴파일
 
-I'm back with another chapter of this compiler writing journey. This time,
-the goal is get the compiler to compile itself on a 8-bit CPU from the 1980s.
-It's been an interesting, sometimes fun, sometimes painful task. Here's a
-summary of all the work that I've had to do.
+컴파일러 작성 여정의 새로운 장을 시작한다. 이번 목표는 1980년대 8비트 CPU에서 컴파일러가 스스로를 컴파일할 수 있도록 만드는 것이다. 이 작업은 흥미롭기도 하고, 때로는 즐겁기도, 때로는 고통스럽기도 했다. 여기서는 지금까지 해온 모든 작업을 요약해본다.
 
-For the CPU, I chose the
-[Motorola 6809](https://en.wikipedia.org/wiki/Motorola_6809). This is
-probably one of the most sophisticated 8-bit CPUs from the 1980s, with
-a bunch of useful addressing modes and, importantly, a useful stack pointer.
+CPU로는 [Motorola 6809](https://en.wikipedia.org/wiki/Motorola_6809)를 선택했다. 이 CPU는 1980년대 가장 복잡한 8비트 CPU 중 하나로, 다양한 유용한 주소 지정 모드와 중요한 스택 포인터를 제공한다.
 
-What makes it difficult to write a compiler for the 6809 is the address space
-limitation. Like many of the 8-bit CPUs, there only 64K of memory
-(yes, 65,536 _bytes_!) and, on most vintage 6809 systems, a significant
-portion of this is taken up by ROM.
+6809용 컴파일러를 작성하는 데 어려운 점은 주소 공간의 제한이다. 많은 8비트 CPU와 마찬가지로, 64K의 메모리(정확히 65,536바이트!)만 사용할 수 있다. 그리고 대부분의 구형 6809 시스템에서는 이 중 상당 부분이 ROM으로 차지된다.
 
-I went in this direction as, in 2023, I decided to try and build a
-single board computer (SBC) using the 6809 as the CPU. In particular,
-I wanted to have a machine with at least half a megabyte of memory,
-a disk-like storage device, and a Unix-like operating system.
+2023년에 6809를 CPU로 사용하는 싱글 보드 컴퓨터(SBC)를 만들어보기로 결정했다. 특히, 최소 반 메가바이트의 메모리, 디스크 같은 저장 장치, 그리고 유닉스 같은 운영체제를 갖춘 기계를 원했다.
 
-The result is the [MMU09 SBC](https://github.com/DoctorWkt/MMU09).
-The project is semi-incomplete; it does have a Unix-like system,
-it does do multitasking, but there is no pre-emptive multitasking.
-Each process gets 63.5K of usable address space (i.e. RAM).
+그 결과물이 바로 [MMU09 SBC](https://github.com/DoctorWkt/MMU09)다. 이 프로젝트는 아직 완전히 완성되지는 않았지만, 유닉스 같은 시스템을 가지고 있으며, 멀티태스킹도 가능하다. 단, 선점형 멀티태스킹은 지원하지 않는다. 각 프로세스는 63.5K의 사용 가능한 주소 공간(즉, RAM)을 갖는다.
 
-While I was working on MMU09, I needed to find a suitable C compiler to
-compile the code for the operating system, the libraries and the applications.
-I started with [CMOC](http://perso.b2b2c.ca/~sarrazip/dev/cmoc.html) but
-eventually switched over to [vbcc](http://www.compilers.de/vbcc.html).
-Along the way I found Alan Cox's
-[Fuzix Compiler Kit](https://github.com/EtchedPixels/Fuzix-Compiler-Kit)
-which is a work-in-progress C compiler for many 8-bit and 16-bit CPUs.
+MMU09를 작업하면서 운영체제, 라이브러리, 애플리케이션의 코드를 컴파일할 적합한 C 컴파일러를 찾아야 했다. 처음에는 [CMOC](http://perso.b2b2c.ca/~sarrazip/dev/cmoc.html)를 사용했지만, 결국 [vbcc](http://www.compilers.de/vbcc.html)로 전환했다. 그 과정에서 Alan Cox의 [Fuzix Compiler Kit](https://github.com/EtchedPixels/Fuzix-Compiler-Kit)를 발견했다. 이는 많은 8비트와 16비트 CPU를 위한 진행 중인 C 컴파일러 프로젝트다.
 
-All of this got me to thinking: is it possible to have the C compiler
-run _on_ the 6809 and not just cross compile from a more powerful system?
-I thought the Fuzix Compiler Kit might be a contender but, no, it's just
-too big to fit on the 6809 itself.
+이 모든 경험을 통해 한 가지 생각이 들었다: C 컴파일러가 더 강력한 시스템에서 크로스 컴파일하는 것이 아니라, 6809 자체에서 실행될 수 있을까? Fuzix Compiler Kit가 가능할 것 같았지만, 아니었다. 6809 자체에 맞추기에는 너무 크다.
 
-So here we are with the question/goal: can the "acwj" compiler be modified
-to fit and run on a 6809 platform?
+그래서 이제 질문과 목표가 생겼다: "acwj" 컴파일러를 6809 플랫폼에서 실행될 수 있도록 수정할 수 있을까?
 
-## The 6809 CPU
 
-Let's start with a look at the 6809 CPU from a compiler writer's perspective.
-I've already mentioned the 64K address space limitation: that's going to
-require the "acwj" compiler to be completely restructured to fit. Now let's
-look at the 6809's architecture.
+## 6809 CPU
+
+컴파일러 작성자의 관점에서 6809 CPU를 살펴보자. 이미 64K 주소 공간 제한에 대해 언급했는데, 이는 "acwj" 컴파일러를 완전히 재구성해야 함을 의미한다. 이제 6809의 아키텍처를 자세히 살펴보자.
 
 ![](docs/6809_Internal_Registers.png)
 
-Creative Commons CC0 license,
-[Wikipedia](https://commons.wikimedia.org/wiki/File:6809_Internal_Registers.svg)
+Creative Commons CC0 라이선스, [Wikipedia](https://commons.wikimedia.org/wiki/File:6809_Internal_Registers.svg)
 
-For an 8-bit CPU, the 6809 has quite a few registers. Well, it's not like
-the x64 or a RISC CPU with a bunch of general-purpose registers. There is
-a single 16-bit `D` register on which we can do logical and arithmetic
-operations. It can also be accessed as two 8-bit registers `A` and `B`, of
-which `B` is the least-significant byte in the `D` register.
+8비트 CPU인 6809는 상당히 많은 레지스터를 가지고 있다. 물론 x64나 RISC CPU처럼 다수의 범용 레지스터를 가진 것은 아니다. 논리 및 산술 연산을 수행할 수 있는 단일 16비트 `D` 레지스터가 있다. 이 레지스터는 두 개의 8비트 레지스터 `A`와 `B`로도 접근할 수 있으며, `B`는 `D` 레지스터의 최하위 바이트다.
 
-When doing logical and arithmetic operations, the second operand is
-either a memory location accessed via some addressing mode, or a literal value.
-The result of the operation is put back in the `D` register: hence, it
-_accumulates_ the operation's result.
+논리 및 산술 연산을 수행할 때, 두 번째 피연산자는 주소 지정 모드를 통해 접근한 메모리 위치이거나 리터럴 값이다. 연산 결과는 항상 `D` 레지스터에 저장된다. 따라서 `D` 레지스터는 연산 결과를 누적한다.
 
-To access memory, there are a bunch of addressing mode to do so. In fact,
-there are many more available than a compiler needs! We have the index
-registers `X` and `Y` to, for example, access an element in an array
-when we know the base address and `X` holds the element's index.
-We can also access memory by using a signed constant and the stack pointer
-`S` as the index; this allows us to treat `S` as a 
-[frame pointer](https://en.wikipedia.org/wiki/Call_stack#FRAME-POINTER).
-We can find the local variables of a function at addresses below the
-frame pointer and function arguments at addresses above the frame pointer.
+메모리에 접근하기 위해 다양한 주소 지정 모드가 있다. 사실 컴파일러가 필요로 하는 것보다 훨씬 더 많은 모드가 제공된다! 예를 들어, 배열의 기본 주소를 알고 있고 `X`에 요소의 인덱스가 있는 경우, `X`와 `Y` 인덱스 레지스터를 사용해 배열 요소에 접근할 수 있다. 또한 부호 있는 상수와 스택 포인터 `S`를 인덱스로 사용해 메모리에 접근할 수도 있다. 이를 통해 `S`를 [프레임 포인터](https://en.wikipedia.org/wiki/Call_stack#FRAME-POINTER)로 취급할 수 있다. 함수의 지역 변수는 프레임 포인터 아래 주소에서 찾을 수 있고, 함수 인수는 프레임 포인터 위 주소에서 찾을 수 있다.
 
-Let's have a look at some examples to make the above a bit clearer:
+위 내용을 더 명확히 이해하기 위해 몇 가지 예제를 살펴보자:
 
 ```
-    ldd #2         # Load D with the constant 2
-    ldd 2          # Load D from addresses 2 and 3 (16 bits)
-    ldd _x         # Load D from the location known as _x
-    ldd 2,s        # Load D from an argument on the stack
-    std -20,s      # Store D to a local variable on the stack
-    leax 8,s       # Get the (effective) address which is S+8
-                   # and store it in the X register
-    ldd 4,x        # Now use that as a pointer to an int array
-                   # and load the value at index 2 - remember
-                   # that D is 16-bits (2 bytes), so 4 bytes
-                   # are two 16-bit "words"
-    addd -6,s      # Add the int we just fetched to a local
-                   # variable and save it in the D register
+    ldd #2         # 상수 2를 D에 로드
+    ldd 2          # 주소 2와 3에서 16비트 값을 D에 로드
+    ldd _x         # _x로 알려진 위치에서 D에 로드
+    ldd 2,s        # 스택의 인수에서 D에 로드
+    std -20,s      # D의 값을 스택의 지역 변수에 저장
+    leax 8,s       # S+8의 (유효) 주소를 가져와 X 레지스터에 저장
+    ldd 4,x        # 이제 이를 int 배열의 포인터로 사용하고
+                   # 인덱스 2의 값을 로드. D는 16비트(2바이트)이므로
+                   # 4바이트는 두 개의 16비트 "워드"임
+    addd -6,s      # 방금 가져온 int를 지역 변수에 더하고
+                   # 결과를 D 레지스터에 저장
 ```
 
-For more details, I'd recommend that you browse through the
-[6809 datasheet](docs/6809Data.pdf).
-Pages 5-6 cover the registers, pages 16-18 cover the addressing modes,
-and pages 25-27 list the available instructions.
+더 자세한 내용은 [6809 데이터시트](docs/6809Data.pdf)를 참조하기를 권한다. 5-6페이지는 레지스터를, 16-18페이지는 주소 지정 모드를, 25-27페이지는 사용 가능한 명령어 목록을 다룬다.
 
-Back to targetting the "acwj" compiler to the 6809. Well, having a lot
-of addressing modes is great. We can deal with 8-bit values and 16-bit
-values, but there are no 32-bit registers. OK, we can sort that out
-somehow.
+"acwj" 컴파일러를 6809로 포팅하는 문제로 돌아가자. 많은 주소 지정 모드를 사용할 수 있다는 것은 좋은 점이다. 8비트 값과 16비트 값을 다룰 수 있지만, 32비트 레지스터는 없다. 이 문제는 어떻게든 해결할 수 있을 것이다.
 
-But the biggest problem, apart from the 64K address space,
-is that the "acwj" compiler was written for an architecture that has two-
-or three-operand instructions, and with a lot of available registers, e.g.
+하지만 64K 주소 공간 외에도 가장 큰 문제는 "acwj" 컴파일러가 두 개 또는 세 개의 피연산자를 가진 명령어와 많은 수의 레지스터를 가진 아키텍처를 위해 작성되었다는 점이다. 예를 들어:
 
 ```
-   load R1, _x		# Bring _x and _y into registers
+   load R1, _x		# _x와 _y를 레지스터에 로드
    load R2, _y
    add  R3, R1, R2	# R3= R1 + R2
-   save R3, _z		# Store the result into _z
+   save R3, _z		# 결과를 _z에 저장
 ```
 
-The 6809 usually has the `D` register as one instruction operand, and
-memory or a literal value as the other operand; the result always ends
-up in the `D` register.
+6809는 보통 `D` 레지스터를 하나의 피연산자로 사용하고, 메모리나 리터럴 값을 다른 피연산자로 사용한다. 결과는 항상 `D` 레지스터에 저장된다.
 
-## Keeping the QBE Backend
 
-I also wanted to keep the existing QBE backend in the compiler. I knew
-that this would be invaluable as I made changes to the compiler - I
-could run the tests with both the QBE and 6809 backends and compare
-results. And I could always stress-test the compiler by trying to
-perform the triple test using the QBE backend.
+## QBE 백엔드 유지하기
 
-So now the full goal is: can I take the abstract syntax tree (AST) generated
-by the compiler's parser and use it to generate assembly code for two
-completely different architectures: QBE (RISC-like, three-operand instructions)
-and the 6809 (only one register, two-operand instructions with implicit
-source and destination)? And can I get the compiler to self-compile on
-both architectures?
+나는 컴파일러에서 기존의 QBE 백엔드를 유지하고 싶었다. 이는 컴파일러를 변경할 때 매우 유용할 것이라고 생각했다. QBE와 6809 백엔드 모두로 테스트를 실행하고 결과를 비교할 수 있기 때문이다. 또한 QBE 백엔드를 사용해 삼중 테스트를 수행함으로써 컴파일러를 항상 스트레스 테스트할 수 있다.
 
-This is going to be an interesting journey!
+이제 최종 목표는 다음과 같다: 컴파일러의 파서가 생성한 추상 구문 트리(AST)를 사용해 두 가지 완전히 다른 아키텍처(QBE와 6809)에 대한 어셈블리 코드를 생성할 수 있는가? 그리고 컴파일러가 두 아키텍처 모두에서 자체 컴파일을 수행할 수 있는가?
 
-## The Code Generator Contract
+QBE는 RISC 스타일의 3-오퍼랜드 명령어를 사용하는 반면, 6809는 단 하나의 레지스터와 암시적 소스 및 목적지를 가진 2-오퍼랜드 명령어를 사용한다. 이 두 아키텍처에 대한 코드 생성을 동시에 지원하는 것은 흥미로운 도전이 될 것이다.
 
-Now that we are going to have two different backends, we need a "contract"
-or API between the architecture-independent part of the code generator
-([gen.c](gen.c)) and each architecture-dependent part. This is now the
-list of functions defined in [gen.h](gen.h).
+이 과정은 분명 흥미로운 여정이 될 것이다!
 
-The basic API is the same as before. We pass in one or more "register numbers"
-and get back a register number that holds the result. One difference this
-time is that many of the functions receive the architecture-independent `type`
-of the operands; this is defined in [defs.h](defs.h):
+
+## 코드 생성기 계약
+
+이제 두 가지 다른 백엔드를 사용하게 되면서, 아키텍처에 독립적인 코드 생성기 부분([gen.c](gen.c))과 각 아키텍처에 의존적인 부분 사이에 '계약' 또는 API가 필요하다. 이 계약은 [gen.h](gen.h)에 정의된 함수 목록으로 구성된다.
+
+기본 API는 이전과 동일하다. 하나 이상의 "레지스터 번호"를 전달하면 결과를 담은 레지스터 번호를 반환한다. 이번에는 많은 함수가 아키텍처에 독립적인 피연산자의 `타입`을 받는다는 점이 다르다. 이 타입은 [defs.h](defs.h)에 정의되어 있다:
 
 ```
-// Primitive types. The bottom 4 bits is an integer
-// value that represents the level of indirection,
-// e.g. 0= no pointer, 1= pointer, 2= pointer pointer etc.
+// 기본 타입. 하위 4비트는 간접 참조 수준을 나타내는 정수 값이다.
+// 예: 0=포인터 없음, 1=포인터, 2=포인터의 포인터 등
 enum {
   P_NONE, P_VOID = 16, P_CHAR = 32, P_INT = 48, P_LONG = 64,
   P_STRUCT=80, P_UNION=96
 };
 ```
 
-If you look at the QBE code generator in [cgqbe.c](cgqbe.c), it is
-pretty much the same as in the last chapter in this "acwj" journey.
-One thing to note is that I've abstracted a few of the functions into
-a separate file, [targqbe.c](targqbe.c), as the parser and code
-generator now live in different programs.
+[QBE 코드 생성기](cgqbe.c)를 보면, 이전 "acwj" 여정에서 다룬 내용과 거의 동일하다. 한 가지 주목할 점은 파서와 코드 생성기가 이제 별도의 프로그램으로 분리되면서 몇 가지 함수를 [targqbe.c](targqbe.c)라는 별도의 파일로 추상화했다는 것이다.
 
-Now let's look at the 6809 code generator.
+이제 6809 코드 생성기를 살펴보자.
 
-## 6809-Specific Types and the D Register
 
-The big problem is how to have the idea of multiple registers on the 6809.
-I'll cover that in the next section, but I need to take a short detour
-first.
+## 6809 프로세서의 특수 타입과 D 레지스터
 
-Each architecture-dependent code generator gets given the type of
-operands: P_CHAR, P_INT etc. For the 6809 code generator, we convert
-these into 6809-specific types, as defined in [cg6809.c](cg6809.c):
+6809 프로세서에서 여러 레지스터를 다루는 방법이 주요 문제다. 이에 대해 다음 섹션에서 자세히 다루겠지만, 우선 짧게 다른 내용을 먼저 살펴보겠다.
+
+각 아키텍처에 의존적인 코드 생성기는 피연산자의 타입을 받는다. P_CHAR, P_INT 등이 그 예시다. 6809 코드 생성기의 경우, 이 타입들을 6809 전용 타입으로 변환한다. 이는 [cg6809.c](cg6809.c) 파일에 다음과 같이 정의되어 있다:
 
 ```
-#define PR_CHAR         1	// size 1 byte
-#define PR_INT          2	// size 2 bytes
-#define PR_POINTER      3	// size 2 bytes
-#define PR_LONG         4	// size 4 bytes
+#define PR_CHAR         1	// 크기 1바이트
+#define PR_INT          2	// 크기 2바이트
+#define PR_POINTER      3	// 크기 2바이트
+#define PR_LONG         4	// 크기 4바이트
 ```
 
-In this file, you will see a lot of this sort of code:
+이 파일에서는 다음과 같은 코드를 자주 볼 수 있다:
 
 ```
   int primtype= cgprimtype(type);
 
   switch(primtype) {
     case PR_CHAR:
-      // Code to generate char operations
+      // char 연산을 생성하는 코드
     case PR_INT:
     case PR_POINTER:
-      // Code to generate int operations
+      // int 연산을 생성하는 코드
     case PR_LONG:
-      // Code to generate long operations
+      // long 연산을 생성하는 코드
   }
 ```
 
-Even though `PR_INT` and `PR_POINTER` are the same size and generate the same
-code, I've kept the ideas separate. That's because pointers are really
-unsigned whereas `int`s are signed. Later on, if I get to adding signed and
-unsigned types to the compiler, I already have a head start here in the
-6809 backend.
+`PR_INT`와 `PR_POINTER`는 크기가 같고 동일한 코드를 생성하지만, 개념적으로 분리했다. 이는 포인터가 부호 없는(unsigned) 값인 반면, `int`는 부호 있는(signed) 값이기 때문이다. 나중에 컴파일러에 부호 있는 타입과 부호 없는 타입을 추가하게 되면, 이미 6809 백엔드에서 이 부분을 준비해 둔 셈이다.
 
-## How Registers When No Registers?
 
-Now, back to the main problem:
-if the code generator API uses register numbers, how do we write a
-6809 backend when this CPU only has a single accumulator, `D`?
+## 레지스터가 없을 때 어떻게 처리할까?
 
-When I began writing the 6809 backend, I started with a set of
-4-byte memory locations called `R0, R1, R2` etc. You can still see
-them in [lib/6809/crt0.s](lib/6809/crt0.s):
+이제 핵심 문제로 돌아가보자. 코드 생성기 API가 레지스터 번호를 사용하는데, 6809 CPU에는 단일 누산기인 `D`만 있다면 어떻게 백엔드를 작성할 수 있을까?
+
+6809 백엔드를 처음 작성할 때, 나는 `R0, R1, R2` 등으로 불리는 4바이트 메모리 위치 세트로 시작했다. 이 내용은 [lib/6809/crt0.s](lib/6809/crt0.s) 파일에서 여전히 확인할 수 있다:
 
 ```
 R0:     .word   0
@@ -221,8 +140,7 @@ R1:     .word   0
 ...
 ```
 
-This helped me get the 6809 backend up and running, but the code
-generated was awful. For example, this C code:
+이 방법으로 6809 백엔드를 작동시킬 수 있었지만, 생성된 코드는 매우 비효율적이었다. 예를 들어, 다음과 같은 C 코드:
 
 ```
   int x, y, z;
@@ -230,7 +148,7 @@ generated was awful. For example, this C code:
   z= x + y;
 ```
 
-gets translated to:
+는 다음과 같이 번역되었다:
 
 ```
   ldd  _x
@@ -244,63 +162,53 @@ gets translated to:
   std  _z
 ```
 
-Then I realised: the 6809 is very "address"-oriented: there are a bunch
-of addressing modes, and most instructions have an address (or a literal)
-as an operand. So, let's keep a list of "_locations_".
+그러다 6809가 매우 "주소" 지향적이라는 사실을 깨달았다. 다양한 주소 지정 모드가 있으며, 대부분의 명령어는 피연산자로 주소(또는 리터럴)를 사용한다. 따라서 "_위치_" 목록을 유지하기로 했다.
 
-A location is one of the following, defined in [cg6809.c](cg6809.c):
+위치는 [cg6809.c](cg6809.c) 파일에 정의된 다음 중 하나이다:
 
 ```
 enum {
-  L_FREE,               // This location is not used
-  L_SYMBOL,             // A global symbol with an optional offset
-  L_LOCAL,              // A local variable or parameter
-  L_CONST,              // An integer literal value
-  L_LABEL,              // A label
-  L_SYMADDR,            // The address of a symbol, local or parameter
-  L_TEMP,               // A temporarily-stored value: R0, R1, R2 ...
-  L_DREG                // The D location, i.e. B, D or Y/D
+  L_FREE,               // 사용되지 않는 위치
+  L_SYMBOL,             // 옵셔널 오프셋이 있는 전역 심볼
+  L_LOCAL,              // 지역 변수 또는 매개변수
+  L_CONST,              // 정수 리터럴 값
+  L_LABEL,              // 레이블
+  L_SYMADDR,            // 심볼, 지역 변수 또는 매개변수의 주소
+  L_TEMP,               // 임시 저장 값: R0, R1, R2 ...
+  L_DREG                // D 위치, 즉 B, D 또는 Y/D
 };
 ```
 
-and we keep a list of free or in-use locations which have this structure:
+그리고 우리는 이 구조를 가진 사용 중이거나 사용 가능한 위치 목록을 유지한다:
 
 ```
 struct Location {
-  int type;             // One of the L_ values
-  char *name;           // A symbol's name
-  long intval;          // Offset, const value, label-id etc.
-  int primtype;         // 6809 primitive type
+  int type;             // L_ 값 중 하나
+  char *name;           // 심볼 이름
+  long intval;          // 오프셋, 상수 값, 레이블 ID 등
+  int primtype;         // 6809 기본 타입
 };
 ```
 
-Examples:
+예시:
 
- - a global `int x` would be an L_SYMBOL with `name` set to "x" and
-   `primtype` set to PR_INT.
- - a local `char *ptr` would be an L_LOCAL with no name, but the
-   `intval` would be set to its offset in the stack frame, e.g. -8.
-   `primtype` would be PR_POINTER.
-   If it were a function parameter, the offset would be positive.
- - if the operand was something like `&x` (the address of `x`),
-   then the location would be an L_SYMADDR with `name` set to "x".
- - a literal value like 456 would be an L_CONST with the `intval`
-   set to 456 and `primtype` set to PR_INT.
- - finally, if the operand is already in the `D` register, we
-   would have an L_DREG location with a certain PR_ type.
+ - 전역 `int x`는 `name`이 "x"로 설정되고 `primtype`이 PR_INT로 설정된 L_SYMBOL이다.
+ - 지역 `char *ptr`는 이름이 없지만 `intval`이 스택 프레임 내 오프셋(예: -8)으로 설정된 L_LOCAL이다. `primtype`은 PR_POINTER이다. 함수 매개변수라면 오프셋은 양수일 것이다.
+ - 피연산자가 `&x`(x의 주소)와 같은 경우, 위치는 `name`이 "x"로 설정된 L_SYMADDR이다.
+ - 456과 같은 리터럴 값은 `intval`이 456으로 설정되고 `primtype`이 PR_INT로 설정된 L_CONST이다.
+ - 마지막으로, 피연산자가 이미 `D` 레지스터에 있다면, 특정 PR_ 타입을 가진 L_DREG 위치가 된다.
 
-So, locations stand in for registers. We have an array of 16 locations:
+따라서, 위치는 레지스터를 대신한다. 우리는 16개의 위치 배열을 가지고 있다:
 
 ```
 #define NUMFREELOCNS 16
 static struct Location Locn[NUMFREELOCNS];
 ```
 
-Let's take a look at the code to generate addition on the 6809.
+이제 6809에서 덧셈을 생성하는 코드를 살펴보자.
 
 ```
-// Add two locations together and return
-// the number of the location with the result
+// 두 위치를 더하고 결과가 있는 위치 번호를 반환
 int cgadd(int l1, int l2, int type) {
   int primtype= cgprimtype(type);
 
@@ -327,75 +235,57 @@ int cgadd(int l1, int l2, int type) {
 }
 ```
 
-We first determine the 6809 type from the generic operand type.
-Then we load the value from the first location `l1` into the `D` register.
-Then, based on the 6809 type, we output the right set of instructions
-and print the second location `l2` after each instruction.
+먼저 일반 피연산자 타입에서 6809 타입을 결정한다. 그런 다음 첫 번째 위치 `l1`의 값을 `D` 레지스터에 로드한다. 그런 다음 6809 타입에 따라 올바른 명령어 세트를 출력하고 각 명령어 뒤에 두 번째 위치 `l2`를 출력한다.
 
-Once the addition is done, we free the second location and mark
-that the first location `l1` is now the `D` register. We also note
-that `D` is now in-use before returning.
+덧셈이 완료되면 두 번째 위치를 해제하고 첫 번째 위치 `l1`이 이제 `D` 레지스터임을 표시한다. 또한 `D`가 이제 사용 중임을 기록한 후 반환한다.
 
-Using the idea of locations, the C code `z= x + y` now gets translated to:
+위치 개념을 사용하면, C 코드 `z= x + y`는 이제 다음과 같이 번역된다:
 
 ```
-  ldd  _x	; i.e. load_x(l1);
-  addd _y	; i.e. fprintf(Outfile, "\taddd "); printlocation(l2, 2, 'd');
-  std  _z	; performed in another function, cgstorglob()
+  ldd  _x	; 즉 load_x(l1);
+  addd _y	; 즉 fprintf(Outfile, "\taddd "); printlocation(l2, 2, 'd');
+  std  _z	; 다른 함수인 cgstorglob()에서 수행
 ```
 
-## Dealing with Longs
 
-The 6809 has 8-bit and 16-bit operations, but the compiler needs to
-synthesize operations on 32-bit longs. Also, there is no 32-bit register.
+## 32비트 Long 타입 처리
 
-> Aside: the 6809 is big-endian. If the `long` value of 0x12345678
-> was stored in a `long` variable named `foo`, then 0x12 would be
-> at `foo` offset 0, 0x34 at `foo` offset 1, 0x56 at `foo` offset
-> 2 and 0x78 at `foo` offset 3.
+6809 프로세서는 8비트와 16비트 연산을 지원하지만, 컴파일러는 32비트 long 타입 연산을 구현해야 한다. 또한, 32비트 레지스터가 존재하지 않는다.
 
-I've borrowed the idea for longs that Alan Cox uses in the
-[Fuzix Compiler Kit](https://github.com/EtchedPixels/Fuzix-Compiler-Kit).
-We use the `Y` register to hold the top-half of a 32-bit long with the
-`D` register holding the lower half:
+> 참고: 6809는 빅 엔디안 방식이다. 만약 0x12345678이라는 long 값을 `foo`라는 변수에 저장한다면, 0x12는 `foo`의 오프셋 0, 0x34는 오프셋 1, 0x56은 오프셋 2, 0x78은 오프셋 3에 위치한다.
+
+나는 [Fuzix Compiler Kit](https://github.com/EtchedPixels/Fuzix-Compiler-Kit)에서 Alan Cox가 사용한 방식을 차용했다. `Y` 레지스터를 사용해 32비트 long의 상위 16비트를 저장하고, `D` 레지스터를 사용해 하위 16비트를 저장한다:
 
 ![](docs/long_regs.png)
 
-The 6809 already calls the lower half of the `D` register the `B`
-register, used for 8-bit operations. And there is the `A` register
-which is the top half of the `D` register.
+6809는 이미 `D` 레지스터의 하위 8비트를 `B` 레지스터로 사용하며, 8비트 연산에 활용한다. 그리고 `D` 레지스터의 상위 8비트는 `A` 레지스터로 사용한다.
 
-Looking at the above `cgadd()` code, you can see that, if `x`, `y`
-and `z` were `long`s not `int`s, we would generate:
+위의 `cgadd()` 코드를 보면, `x`, `y`, `z`가 `int`가 아닌 `long` 타입일 때 다음과 같은 코드가 생성됨을 알 수 있다:
 
 ```
-  ldd  _x+2	; Get lower half of _x into D
-  ldy  _x+0	; Get upper half of _x into Y
-  addd _y+2	; Add lower half of _y to D
-  exg  y,d	; Swap Y and D registers
-  adcb _y+1	; Add _y offset 1 to the B register with carry
-  adca _y+0	; Add _y offset 0 to the A register with carry
-  exg  y,d	; Swap Y and D registers back again
-  std  _z+2	; Finally store D (the lower half) in _z offset 2
-  sty  _z	; and Y (the upper half) in _z offset 0
+  ldd  _x+2	; _x의 하위 16비트를 D에 로드
+  ldy  _x+0	; _x의 상위 16비트를 Y에 로드
+  addd _y+2	; _y의 하위 16비트를 D에 더함
+  exg  y,d	; Y와 D 레지스터 교환
+  adcb _y+1	; _y의 오프셋 1 값을 B 레지스터에 캐리와 함께 더함
+  adca _y+0	; _y의 오프셋 0 값을 A 레지스터에 캐리와 함께 더함
+  exg  y,d	; Y와 D 레지스터를 다시 교환
+  std  _z+2	; D(하위 16비트)를 _z의 오프셋 2에 저장
+  sty  _z	; Y(상위 16비트)를 _z의 오프셋 0에 저장
 ```
 
-It's a bit of a pain: there is a 16-bit `addd` operation with no carry
-but there is no 16-bit addition operation with carry. Instead, we have to
-perform two 8-bit additions with carry to get the same result.
+이 과정은 다소 번거롭다. 16비트 `addd` 연산은 캐리를 지원하지 않기 때문에, 동일한 결과를 얻기 위해 두 번의 8비트 덧셈 연산을 수행해야 한다.
 
-This inconsistency with the available 6809 operations
-makes the 6809 code generator code annoyingly ugly in places.
+6809에서 제공하는 연산의 이러한 불일치로 인해, 6809 코드 생성기가 부분적으로 복잡하고 지저분해지는 문제가 발생한다.
+
 
 # printlocation()
 
-A lot of the work in handling locations is performed by the `printlocation()`
-function. Let's break it down into a few stages.
+위치 정보를 처리하는 작업의 상당 부분은 `printlocation()` 함수가 담당한다. 이 함수를 몇 단계로 나누어 살펴보자.
 
 ```
-// Print a location out. For memory locations
-// use the offset. For constants, use the
-// register letter to determine which part to use.
+// 위치 정보를 출력한다. 메모리 위치의 경우 오프셋을 사용한다.
+// 상수의 경우 레지스터 문자를 사용해 어떤 부분을 출력할지 결정한다.
 static void printlocation(int l, int offset, char rletter) {
   int intval;
 
@@ -414,107 +304,84 @@ static void printlocation(int l, int offset, char rletter) {
     ...
 ```
 
-If the location is L_FREE, then there is no point in trying to print it!
-For symbols, we print out the symbol's name followed by the offset.
-That way, for `int`s and `long`s, we can get access to all 2 or 4 bytes
-that make up the symbol: `_x+0`, `_x+1`, `_x+2`, `_x+3`.
+위치가 L_FREE 타입이라면 출력할 필요가 없다!  
+심볼의 경우, 심볼 이름 뒤에 오프셋을 붙여 출력한다. 이렇게 하면 `int`나 `long` 타입의 심볼을 구성하는 모든 바이트에 접근할 수 있다: `_x+0`, `_x+1`, `_x+2`, `_x+3`.
 
-For locals and function parameters, we print out the position in the
-stack frame (i.e. `intval` with the offset added on). So if a local
-`long` variable `fred` is on the stack at position -12, we can get
-access to all four bytes with `-12,s`, `-11,s`, `-10,s`, `-9,s`.
+로컬 변수와 함수 파라미터의 경우, 스택 프레임 내 위치를 출력한다(즉, `intval`에 오프셋을 더한 값). 예를 들어 로컬 `long` 변수 `fred`가 스택의 -12 위치에 있다면, `-12,s`, `-11,s`, `-10,s`, `-9,s`로 모든 네 바이트에 접근할 수 있다.
 
-Yes, there is something called `sp_adjust` here. I'll talk about that soon!
+여기서 `sp_adjust`라는 것이 등장한다. 이에 대해서는 곧 설명할 예정이다!
 
-Now, L_TEMP locations. As with all previous versions of the compiler,
-sometimes we have to store intermediate results somewhere, e.g.
+이제 L_TEMP 위치를 살펴보자. 이전 버전의 컴파일러와 마찬가지로, 중간 결과를 어딘가에 저장해야 하는 경우가 있다. 예를 들어:
 
 ```
   int z= (a + b) * (c - d) / (e + f) * (g + h - i) * (q - 3);
 ```
 
-We have five intermediate results in parentheses which we need
-before we can do the multiplies and divides. Well, those original
-pretend registers R0, R1, R2 ... become useful now! When I need
-temporary storage for intermediate results, I just allocate these
-locations and store the intermediate results here. There are functions
-`cgalloctemp()` and `cgfreealltemps()` in [cg6809.c](cg6809.c) to do this.
+위 식에서는 괄호 안의 다섯 가지 중간 결과가 곱셈과 나눗셈을 수행하기 전에 필요하다. 이때 가상의 레지스터 R0, R1, R2 등이 유용하게 쓰인다! 중간 결과를 임시로 저장해야 할 때, 이 위치를 할당하고 중간 결과를 여기에 저장한다. 이 작업은 [cg6809.c](cg6809.c) 파일의 `cgalloctemp()`과 `cgfreealltemps()` 함수가 처리한다.
 
-# printlocation() and Literal Values
 
-For most locations, we can simply print out the location's name or
-position on the stack, plus the offset we need. The code generator
-has already printed out the instruction to run, so:
+# printlocation()와 리터럴 값
+
+대부분의 위치에서는 단순히 위치의 이름이나 스택 상의 위치를 출력하고, 필요한 오프셋을 더하면 된다. 코드 생성기는 이미 실행할 명령어를 출력했기 때문에 다음과 같이 처리한다.
 
 ```
-  ldb _x+0	; Will load one byte from _x into B
-  ldd _x+0	; Will load two bytes from _x into D
+  ldb _x+0	; _x에서 한 바이트를 B에 로드
+  ldd _x+0	; _x에서 두 바이트를 D에 로드
 ```
 
-But for literal values, e.g. 0x12345678, do we need to print out
-the 0x78 on the end, or perhaps the 0x5678? Or do we need (in the
-addition code), access to the 0x34 and also the 0x12?
+하지만 리터럴 값, 예를 들어 0x12345678의 경우, 끝의 0x78을 출력해야 할지, 아니면 0x5678을 출력해야 할지 고민할 수 있다. 또는 덧셈 코드에서 0x34와 0x12에도 접근해야 할지 고민할 수 있다.
 
-That is why there is the `rletter` parameter to `printlocation()`:
+이런 이유로 `printlocation()`에는 `rletter` 매개변수가 있다.
 
 ```
 static void printlocation(int l, int offset, char rletter);
 ```
 
-When we are printing out literals, we use this to choose which
-part and how much of the literal value. I've chosen values that
-reflect the 6809's register names, but I also made a few up. For
-literal 0x12345678:
+리터럴 값을 출력할 때 이 매개변수를 사용해 어떤 부분을 얼마나 출력할지 선택한다. 6809의 레지스터 이름을 반영한 값을 선택했지만, 몇 가지는 새로 만들었다. 리터럴 0x12345678의 경우:
 
- - 'b' prints out the 0x78 part
- - 'a' prints out the 0x56 part
- - 'd' prints out the 0x5678 part
- - 'y' prints out the 0x1234 part
- - 'f' prints out the 0x34 part
- - 'e' prints out the 0x12 part
+ - 'b'는 0x78 부분을 출력
+ - 'a'는 0x56 부분을 출력
+ - 'd'는 0x5678 부분을 출력
+ - 'y'는 0x1234 부분을 출력
+ - 'f'는 0x34 부분을 출력
+ - 'e'는 0x12 부분을 출력
 
-## Helper Functions
+이 방식으로 리터럴 값의 특정 부분을 선택적으로 출력할 수 있다.
 
-There are several operations which the compiler needs to perform
-but which the 6809 has no instruction: multiplication,
-division, shifts by multiple bits etc.
 
-To solve this problem, I've borrowed several of the helper functions from the
-[Fuzix Compiler Kit](https://github.com/EtchedPixels/Fuzix-Compiler-Kit).
-They are in the archive file `lib/6809/lib6809.a`. The function
-`cgbinhelper()` in [cg6809.c](cg6809.c):
+## 헬퍼 함수
+
+컴파일러가 수행해야 하지만 6809 프로세서가 직접 지원하지 않는 연산들이 있다. 곱셈, 나눗셈, 여러 비트 단위 시프트 등이 그 예시다.
+
+이 문제를 해결하기 위해 [Fuzix Compiler Kit](https://github.com/EtchedPixels/Fuzix-Compiler-Kit)에서 여러 헬퍼 함수를 가져왔다. 이 함수들은 `lib/6809/lib6809.a` 아카이브 파일에 포함되어 있다. [cg6809.c](cg6809.c) 파일에 있는 `cgbinhelper()` 함수는 다음과 같다.
 
 ```
-// Run a helper subroutine on two locations
-// and return the number of the location with the result
+// 두 위치에서 값을 가져와 헬퍼 서브루틴을 실행한 후
+// 결과가 저장된 위치 번호를 반환한다
 static int cgbinhelper(int l1, int l2, int type,
                                 char *cop, char *iop, char *lop);
 ```
 
-gets the value from the two locations `l1` and `l2`, pushes them on
-the stack and then calls one of the three char/int/long helper functions
-with names in `cop`, `iop` and `lop`. Thus, the function in the code
-generator to do multiplication is simply:
+이 함수는 `l1`과 `l2` 위치에서 값을 가져와 스택에 푸시한 다음, `cop`, `iop`, `lop`에 지정된 이름의 char/int/long 헬퍼 함수 중 하나를 호출한다. 따라서 코드 생성기에서 곱셈을 수행하는 함수는 다음과 같이 간단히 구현할 수 있다.
 
 ```
-// Multiply two locations together and return
-// the number of the location with the result
+// 두 위치의 값을 곱한 후
+// 결과가 저장된 위치 번호를 반환한다
 int cgmul(int r1, int r2, int type) {
   return(cgbinhelper(r1, r2, type, "__mul", "__mul", "__mull"));
 }
 ```
 
-# Tracking Positions of Locals and Parameters
 
-A function's local variables or parameters are kept on the stack, and
-we access them by using their offset relative to the stack pointer, e.g.
+# 로컬 변수와 파라미터의 위치 추적
+
+함수의 로컬 변수나 파라미터는 스택에 저장된다. 이 변수들은 스택 포인터를 기준으로 한 오프셋을 통해 접근한다. 예를 들어:
 
 ```
-  ldd -12,s     ; Load the local integer variable which is 12 bytes
-                ; below the stack pointer
+  ldd -12,s     ; 스택 포인터에서 12바이트 아래에 있는 로컬 정수 변수를 로드
 ```
 
-But there's a problem. What if the stack pointer moves? Consider the code:
+하지만 여기서 문제가 발생한다. 스택 포인터가 이동하면 어떻게 될까? 다음 코드를 보자:
 
 ```
 int main() {
@@ -523,34 +390,27 @@ int main() {
  x= 2; printf("%d %d %d\n", x, x, x);
  return(0);
 }
-
 ```
 
-`x` might be at offset 0 relative to the stack pointer. But when we call
-`printf()`, we push a copy of `x` on the stack. Now the real `x` is at
-position 2 etc. So we actually have to generate the code:
+`x`는 스택 포인터를 기준으로 오프셋 0에 위치할 수 있다. 하지만 `printf()`를 호출할 때 `x`의 복사본을 스택에 푸시한다. 이제 실제 `x`는 위치 2에 있게 된다. 따라서 실제로는 다음과 같은 코드를 생성해야 한다:
 
 ```
-  ldd 0,s	; Get x's value
-  pshs d	; Push it on the stack
-  ldd 2,s	; Get x's value, note new offset
-  pshs d	; Push it on the stack
-  ldd 4,s	; Get x's value, note new offset
-  pshs d	; Push it on the stack
-  ldd #L2	; Get the address of the string "%d %d %d\n"
-  pshs d	; Push it on the stack
-  lbsr _printf	; Call printf()
-  leas 8,s	; Pull the 8 bytes of arguments off the stack
+  ldd 0,s	; x의 값을 가져옴
+  pshs d	; 스택에 푸시
+  ldd 2,s	; x의 값을 가져옴, 새로운 오프셋 주의
+  pshs d	; 스택에 푸시
+  ldd 4,s	; x의 값을 가져옴, 새로운 오프셋 주의
+  pshs d	; 스택에 푸시
+  ldd #L2	; 문자열 "%d %d %d\n"의 주소를 가져옴
+  pshs d	; 스택에 푸시
+  lbsr _printf	; printf() 호출
+  leas 8,s	; 스택에서 8바이트의 인수를 제거
 ```
 
-How do we track what the current offset of locals and parameters are?
-The answer is the `sp_adjust` variable in [cg6809.c](cg6809.c). Each
-time we push something on the stack, we add the number of bytes pushed
-to `sp_adjust`. Similarly, when we pull from the stack or move the
-stack pointer up, we subtract that amount from `sp_adjust`. Example:
+로컬 변수와 파라미터의 현재 오프셋을 어떻게 추적할까? 답은 [cg6809.c](cg6809.c) 파일의 `sp_adjust` 변수에 있다. 스택에 무언가를 푸시할 때마다 푸시된 바이트 수만큼 `sp_adjust`에 더한다. 마찬가지로 스택에서 무언가를 풀거나 스택 포인터를 올리면 `sp_adjust`에서 해당 값을 뺀다. 예를 들어:
 
 ```
-// Push a location on the stack
+// 스택에 위치를 푸시
 static void pushlocn(int l) {
   load_d(l);
 
@@ -566,18 +426,17 @@ static void pushlocn(int l) {
 }
 ```
 
-And in `printlocation()` when we print out locals and parameters:
+또한 `printlocation()`에서 로컬 변수와 파라미터를 출력할 때:
 
 ```
     case L_LOCAL: fprintf(Outfile, "%ld,s\n",
                 Locn[l].intval + offset + sp_adjust);
 ```
 
-There is also a bit of error checking when we get to the end of
-generating a function's assembly code:
+함수의 어셈블리 코드 생성을 마치면 약간의 오류 검사도 수행한다:
 
 ```
-// Print out a function postamble
+// 함수의 에필로그 출력
 void cgfuncpostamble(struct symtable *sym) {
   ...
   if (sp_adjust !=0 ) {
@@ -587,242 +446,153 @@ void cgfuncpostamble(struct symtable *sym) {
 }
 ```
 
-That's about all I want to cover in terms of 6809 assembly code generation.
-Yes, the code in [cg6809.c](cg6809.c) has to deal with the vagaries of the
-6809 instruction set, which is why [cg6809.c](cg6809.c) is so much bigger
-than [cgqbe.c](cgqbe.c). But I (hope I) have put enough comments in
-[cg6809.c](cg6809.c) so that you can follow along and understand what it
-is doing.
+이것이 6809 어셈블리 코드 생성에 대해 다룰 내용의 전부이다. [cg6809.c](cg6809.c) 파일의 코드는 6809 명령어 세트의 복잡성을 처리해야 하기 때문에 [cgqbe.c](cgqbe.c) 파일보다 훨씬 크다. 하지만 [cg6809.c](cg6809.c) 파일에 충분한 주석을 달아두었으니 코드를 따라가며 이해할 수 있을 것이다.
 
-There are a few tricky things like tracking when the `D` register is
-in-use or free, and I'm sure I still haven't quite got the synthesis of
-all the `long` operations right.
+`D` 레지스터가 사용 중인지 여부를 추적하는 것과 같은 몇 가지 까다로운 부분이 있으며, 모든 `long` 연산의 합성을 완벽하게 처리하지 못했을 수도 있다.
 
-Now we need to cover a much bigger topic, that of
-the 6809's 64K address limitation.
+이제 6809의 64K 주소 제한이라는 더 큰 주제를 다룰 차례이다.
 
-## Fitting a Compiler into 65,536 Bytes
 
-The original "acwj" compiler was a single executable. It read from the
-C pre-processor's output, did the scanning, parsing and code generation,
-outputting assembly code. It kept the symbol table and the AST tree
-for each function in memory, and never bothered to free data structures
-once they were used.
+## 65,536 바이트 안에 컴파일러 맞추기
 
-None of this is going to help fit the compiler into 64K of memory!
-So, my approach for 6809 self-compilation was to:
+원래 "acwj" 컴파일러는 단일 실행 파일이었다. C 전처리기의 출력을 읽어 스캐닝, 파싱, 코드 생성을 수행하고 어셈블리 코드를 출력했다. 이 컴파일러는 각 함수에 대한 심볼 테이블과 AST 트리를 메모리에 유지했고, 한 번 사용한 데이터 구조는 해제하지 않았다.
 
-1. Break the compiler up into a number of phases. Each phase
-   does one part of the overall compilation task, and the
-   phases use intermediate files to communicate.
-2. Keep as little of the symbol table and AST trees in memory
-   as we can get away with. Instead, these are kept in files
-   and we have functions to read/write them as required.
-3. Try to garbage collect unused data structures with `free()`
-   wherever we can.
+이런 방식은 64K 메모리 안에 컴파일러를 맞추는 데 도움이 되지 않는다! 그래서 6809 자체 컴파일을 위해 다음과 같은 접근 방식을 선택했다:
 
-Let's look at all three in turn.
+1. 컴파일러를 여러 단계로 나눈다. 각 단계는 전체 컴파일 작업의 일부를 담당하고, 단계 간에는 중간 파일을 통해 데이터를 주고받는다.
+2. 심볼 테이블과 AST 트리를 가능한 한 메모리에 적게 유지한다. 대신 이들을 파일에 저장하고 필요할 때 읽고 쓰는 함수를 사용한다.
+3. 사용하지 않는 데이터 구조는 가능한 한 `free()`를 통해 가비지 컬렉션을 시도한다.
 
-## The Seven Compiler Phases
+이제 이 세 가지를 차례로 살펴보자.
 
-The compiler is now arranged to have seven phases, each one with
-its own executable:
 
-1. An external C pre-processor interprets #include, #ifdef
-   and the pre-processor macros.
-2. The lexer reads the pre-processor output and produces a
-   token stream.
-3. The parser reads the token stream and creates
-   a symbol table plus a set of AST trees.
-4. The code generator uses the AST trees and
-   the symbol table and generates assembly code.
-5. An external peephole optimiser improves the assembly code.
-6. An external assembler produces object files.
-7. An external linker takes `crt0.o`, the object files and
-   several libraries and produces a final executable.
+## 7단계 컴파일러 구조
 
-We now have a frontend program [wcc.c](wcc.c) that co-ordinates all
-the phases. The lexer is the program called `cscan`. The parser is
-`cparse6809` or `cparseqbe`. The code generator is `cgen6809` or
-`cgenqbe`, and the peephole optimiser is `cpeep`. All of these
-(via `make install`) get installed in `/opt/wcc/bin`.
+이제 컴파일러는 7단계로 구성되며, 각 단계는 독립적인 실행 파일로 구현된다:
 
-It's understandable that there are two code generators, but why are
-there two parsers? The answer is that `sizeof(int)`, `sizeof(long)`
-etc. are different on each architecture, so the parser needs to
-have this information as well as the code generator. Hence the
-files [targ6809.c](targ6809.c) and [targqbe.c](targqbe.c) which
-get compiled into the parsers and the code generators.
+1. 외부 C 전처리기가 #include, #ifdef와 같은 전처리기 매크로를 해석한다.
+2. 렉서(lexer)가 전처리기 출력을 읽어 토큰 스트림을 생성한다.
+3. 파서(parser)가 토큰 스트림을 읽어 심볼 테이블과 AST(Abstract Syntax Tree) 트리 집합을 생성한다.
+4. 코드 생성기가 AST 트리와 심볼 테이블을 사용해 어셈블리 코드를 생성한다.
+5. 외부 피홀(peephole) 최적화기가 어셈블리 코드를 개선한다.
+6. 외부 어셈블러가 오브젝트 파일을 생성한다.
+7. 외부 링커가 `crt0.o`, 오브젝트 파일, 여러 라이브러리를 결합해 최종 실행 파일을 만든다.
 
-> Aside: the 6809 has a peephole optimiser. The QBE backend uses
-> the `qbe` program to convert QBE code to x64 code. I guess that's
-> also a form of optimisation :-)
+이제 모든 단계를 조율하는 프론트엔드 프로그램인 [wcc.c](wcc.c)가 있다. 렉서는 `cscan`이라는 프로그램이고, 파서는 `cparse6809` 또는 `cparseqbe`이다. 코드 생성기는 `cgen6809` 또는 `cgenqbe`이며, 피홀 최적화기는 `cpeep`이다. 이 모든 프로그램은 `make install`을 통해 `/opt/wcc/bin`에 설치된다.
 
-## Intermediate Files
+두 개의 코드 생성기가 있는 것은 이해할 수 있지만, 왜 두 개의 파서가 필요할까? 그 이유는 `sizeof(int)`, `sizeof(long)` 등의 크기가 각 아키텍처마다 다르기 때문이다. 따라서 파서도 코드 생성기와 마찬가지로 이 정보를 알아야 한다. 그래서 [targ6809.c](targ6809.c)와 [targqbe.c](targqbe.c) 파일이 파서와 코드 생성기에 컴파일된다.
 
-Between all of these seven phases, we need intermediate files to
-hold the phases' outputs. Normally they get deleted at the end of
-compilation, but you can keep them if you use the `-X` command-line
-flag with `wcc`.
+> 참고: 6809에는 피홀 최적화기가 있다. QBE 백엔드는 `qbe` 프로그램을 사용해 QBE 코드를 x64 코드로 변환한다. 이것도 일종의 최적화라고 볼 수 있다 :-)
 
-The C pre-processor's output is stored in a temporary file ending
-with `_cpp`, e.g. `foo.c_cpp` if we are compiling `fred.c`.
 
-The tokeniser's output is stored in a temporary file ending
-with `_tok`. We have a program called [detok.c](detok.c) which you
-can use to dump a token file into readable format.
+## 중간 파일
 
-The parser produces a symbol table file ending with `_sym` and
-a set of AST trees that get stored in a file ending with `_ast`.
-We have programs [desym.c](desym.c) and [detree.c](detree.c)
-to dump the symbol table and AST tree files.
+이 일곱 단계 사이에서는 각 단계의 출력을 저장할 중간 파일이 필요하다. 일반적으로 이 파일들은 컴파일이 끝나면 삭제되지만, `wcc`에 `-X` 커맨드라인 플래그를 사용하면 파일을 유지할 수 있다.
 
-Regardless of the CPU, the code generator always outputs
-unoptimised assembly code in a file ending with `_qbe`.
-This gets read by either `qbe` or `cpeep` to produce the
-optimised assembly code in a temporary file that ends in `_s`.
+C 전처리기의 출력은 `_cpp`로 끝나는 임시 파일에 저장된다. 예를 들어 `fred.c`를 컴파일하면 `foo.c_cpp`와 같은 파일이 생성된다.
 
-The assembler then assembles this file to produce object files
-ending in `.o`, which are then linked by the linker to produce
-the final executable file.
+토큰화기의 출력은 `_tok`로 끝나는 임시 파일에 저장된다. 토큰 파일을 읽기 쉬운 형식으로 덤프할 수 있는 [detok.c](detok.c) 프로그램이 있다.
 
-Like other compilers, `wcc` has the `-S` flag to output assembly
-to a file ending with `.s` (and then stop), and the `-c` flag
-to output object files and then stop.
+파서는 `_sym`으로 끝나는 심볼 테이블 파일과 `_ast`로 끝나는 파일에 저장되는 AST 트리 세트를 생성한다. 심볼 테이블과 AST 트리 파일을 덤프할 수 있는 [desym.c](desym.c)와 [detree.c](detree.c) 프로그램이 있다.
 
-## Format of the Symbol Table and AST files
+CPU와 상관없이 코드 생성기는 항상 최적화되지 않은 어셈블리 코드를 `_qbe`로 끝나는 파일에 출력한다. 이 파일은 `qbe`나 `cpeep`에 의해 읽혀 최적화된 어셈블리 코드를 생성하며, 이 코드는 `_s`로 끝나는 임시 파일에 저장된다.
 
-I took a simple approach for these files which I'm sure could be
-improved. I simply write each `struct symtable` and `struct ASTnode`
-nodes (see [defs.h](defs.h)) directly to the files using `fwrite()`.
+어셈블러는 이 파일을 어셈블하여 `.o`로 끝나는 오브젝트 파일을 생성한다. 이 오브젝트 파일은 링커에 의해 최종 실행 파일로 연결된다.
 
-Many of these have an associated string: symbol names, for example,
-and AST nodes that hold string literals. For these I just `fwrite()`
-out the string including the NUL byte at the end.
+다른 컴파일러와 마찬가지로, `wcc`는 어셈블리를 `.s`로 끝나는 파일에 출력하고 멈추는 `-S` 플래그와 오브젝트 파일을 출력하고 멈추는 `-c` 플래그를 지원한다.
 
-Reading the nodes back in is simple: I just `fread()` the size of
-each struct. But then I have to read back in the NUL-terminated
-string if there is one. There isn't a good C library function to do
-this, so in [misc.c](misc.c) there is a function called `fgetstr()` to
-do this.
 
-One problem with dumping in-memory structures out to disk is that
-the pointers in the structures lose their meaning: when the structure
-is reloaded, it's going to end up in another part of memory. Any 
-pointer value becomes invalid.
+## 심볼 테이블과 AST 파일의 형식
 
-To solve this, both the symbol table structure and the ASTnode structure
-now have numeric ids, both for the node itself and the nodes it points to.
+이 파일들에 대해 간단한 접근 방식을 사용했고, 분명 개선의 여지가 있다. 단순히 `struct symtable`과 `struct ASTnode` 노드( [defs.h](defs.h) 참조)를 `fwrite()`를 사용해 파일에 직접 기록한다.
+
+이들 중 많은 부분이 관련 문자열을 가지고 있다. 예를 들어, 심볼 이름이나 문자열 리터럴을 포함하는 AST 노드가 있다. 이런 경우, 끝에 NUL 바이트를 포함한 문자열을 그대로 `fwrite()`로 기록한다.
+
+노드를 다시 읽어오는 것은 간단하다. 각 구조체의 크기만큼 `fread()`를 사용하면 된다. 하지만 NUL로 끝나는 문자열이 있다면 이를 다시 읽어와야 한다. 이를 위한 적절한 C 라이브러리 함수가 없기 때문에, [misc.c](misc.c)에 `fgetstr()`라는 함수를 만들어 사용한다.
+
+메모리 내 구조체를 디스크에 덤프할 때 발생하는 문제 중 하나는 구조체 내 포인터가 의미를 잃는다는 점이다. 구조체를 다시 로드하면 메모리의 다른 부분에 위치하게 되기 때문에, 모든 포인터 값은 유효하지 않게 된다.
+
+이 문제를 해결하기 위해, 심볼 테이블 구조체와 ASTnode 구조체 모두 노드 자체와 노드가 가리키는 노드에 대한 숫자 ID를 추가했다.
 
 ```
-// Symbol table structure
+// 심볼 테이블 구조체
 struct symtable {
-  char *name;                   // Name of a symbol
-  int id;                       // Numeric id of the symbol
+  char *name;                   // 심볼의 이름
+  int id;                       // 심볼의 숫자 ID
   ...
-  struct symtable *ctype;       // If struct/union, ptr to that type
-  int ctypeid;                  // Numeric id of that type
+  struct symtable *ctype;       // 구조체/공용체인 경우, 해당 타입을 가리키는 포인터
+  int ctypeid;                  // 해당 타입의 숫자 ID
 };
 
-// Abstract Syntax Tree structure
+// 추상 구문 트리 구조체
 struct ASTnode {
   ...
-  struct ASTnode *left;         // Left, middle and right child trees
+  struct ASTnode *left;         // 왼쪽, 중간, 오른쪽 자식 트리
   struct ASTnode *mid;
   struct ASTnode *right;
-  int nodeid;                   // Node id when tree is serialised
-  int leftid;                   // Numeric ids when serialised
+  int nodeid;                   // 트리가 직렬화될 때 노드 ID
+  int leftid;                   // 직렬화될 때 숫자 ID
   int midid;
   int rightid;
   ...
 };
 ```
 
-The reading-in code for both is tricky as we have to find and reattach
-nodes. The bigger question is: how much of each file do we bring in
-and keep in memory?
+두 구조체를 읽어오는 코드는 복잡하다. 노드를 찾고 다시 연결해야 하기 때문이다. 더 큰 문제는 파일의 어느 부분까지 메모리로 가져와 유지할 것인가이다.
 
-## Structures In-Memory vs. On-Disk
 
-The tension here is that, if we keep too many symbol table and AST nodes
-in memory, we will run out of memory. But if we put them out into files
-then we might have to do a lot of file read/write operations when we
-need access to the nodes.
+## 메모리 내 구조 vs. 디스크 기반 구조
 
-As with most problems of this type, we just choose one heuristic that does
-a good enough job. One extra constraint here is that we might choose
-a heuristic which does a great job, but it requires a lot of code which
-itself puts pressure on available memory.
+여기서 발생하는 문제는, 너무 많은 심볼 테이블과 AST 노드를 메모리에 유지하면 메모리가 부족해질 수 있다는 점이다. 반면에 이들을 파일로 저장하면 노드에 접근할 때마다 많은 파일 읽기/쓰기 작업을 해야 할 수도 있다.
 
-So, here is what I've chosen. It can be replaced, but it's what I've got
-for now.
+이런 유형의 문제에서는 대개 충분히 좋은 성능을 내는 휴리스틱을 선택한다. 여기에 추가적인 제약 조건은, 훌륭한 성능을 내는 휴리스틱을 선택하더라도 그 구현에 많은 코드가 필요할 수 있고, 이 자체가 사용 가능한 메모리에 부담을 줄 수 있다는 점이다.
 
-## Writing Symbol Table Nodes
+따라서 현재 내가 선택한 방법은 다음과 같다. 이 방법은 나중에 바꿀 수 있지만, 현재로서는 이 방식으로 진행한다.
 
-The parse phase finds symbols and determines their type etc. So it is
-responsible for writing the symbols to a file.
 
-One big change in the compiler is that there is now only a single symbol
-table, not a set of tables. Each symbol in the unified table now has
-a structural type and a visibility (in [defs.h](defs.h)):
+## 심볼 테이블 노드 작성
+
+파싱 단계에서 심볼을 찾고 타입 등을 결정한다. 이 과정에서 심볼을 파일에 기록하는 역할도 수행한다.
+
+컴파일러의 주요 변경 사항 중 하나는 이제 여러 개의 테이블이 아니라 단일 심볼 테이블만 존재한다는 점이다. 통합된 테이블의 각 심볼은 구조적 타입과 가시성을 가진다([defs.h](defs.h) 참조):
 
 ```
-// A symbol in the symbol table is
-// one of these structural types.
+// 심볼 테이블의 심볼은 다음 구조적 타입 중 하나다.
 enum {
   S_VARIABLE, S_FUNCTION, S_ARRAY, S_ENUMVAL, S_STRLIT,
   S_STRUCT, S_UNION, S_ENUMTYPE, S_TYPEDEF, S_NOTATYPE
 };
 
-// Visibilty class for symbols
+// 심볼의 가시성 클래스
 enum {
-  V_GLOBAL,                     // Globally visible symbol
-  V_EXTERN,                     // External globally visible symbol
-  V_STATIC,                     // Static symbol, visible in one file
-  V_LOCAL,                      // Locally visible symbol
-  V_PARAM,                      // Locally visible function parameter
-  V_MEMBER                      // Member of a struct or union
+  V_GLOBAL,                     // 전역적으로 접근 가능한 심볼
+  V_EXTERN,                     // 외부에서 접근 가능한 전역 심볼
+  V_STATIC,                     // 한 파일 내에서만 접근 가능한 정적 심볼
+  V_LOCAL,                      // 로컬에서 접근 가능한 심볼
+  V_PARAM,                      // 함수 파라미터로 접근 가능한 심볼
+  V_MEMBER                      // 구조체 또는 공용체의 멤버
 };
 ```
 
-OK, so I lied a little bit :-) There are actually three symbol tables:
-one for generic symbols, one for types (structs, unions, enums, typedefs)
-and a temporary one which is used to build the member list for
-structs, unions and functions.
+사실 약간의 과장이 있었다. 실제로는 세 개의 심볼 테이블이 존재한다: 일반 심볼을 위한 테이블, 타입(구조체, 공용체, 열거형, typedef)을 위한 테이블, 그리고 구조체, 공용체, 함수의 멤버 리스트를 작성하기 위한 임시 테이블.
 
-In [sym.c](sym.c), the `serialiseSym()` function writes a symbol table
-node and any associated string out to the file. One optimisation is
-that, as nodes are given montonically increasing ids, we can record
-the highest symbol id we have already written out, and not (re)write
-symbols at or below this id.
+[sym.c](sym.c) 파일에서 `serialiseSym()` 함수는 심볼 테이블 노드와 관련 문자열을 파일에 기록한다. 여기서 한 가지 최적화는 노드에 단조 증가하는 ID를 부여하므로, 이미 기록한 최고 심볼 ID를 기록해두고 해당 ID 이하의 심볼은 다시 기록하지 않는다.
 
-The function `flushSymtable()` in the same file walks the type list and
-the generic symbol list and calls `serialiseSym()` to write each node out.
+같은 파일의 `flushSymtable()` 함수는 타입 리스트와 일반 심볼 리스트를 순회하며 각 노드를 `serialiseSym()`을 호출해 기록한다.
 
-In the same file, `freeSym()` frees the memory that a symbol entry
-occupies. This is the node itself, any associated name and also
-any initialisation list (i.e. for global symbols, e.g. `int x= 27;`).
-Symbols like structs, unions and functions also have a list of member
-symbols - the fields in structs and unions, and the locals and parameters
-of a function. These also get freed.
+같은 파일의 `freeSym()` 함수는 심볼 항목이 차지하는 메모리를 해제한다. 이는 노드 자체, 관련 이름, 그리고 초기화 리스트(예: `int x= 27;`와 같은 전역 심볼)를 포함한다. 구조체, 공용체, 함수와 같은 심볼은 멤버 심볼 리스트도 가진다. 이는 구조체와 공용체의 필드, 함수의 로컬 변수와 파라미터를 포함한다. 이들도 함께 해제된다.
 
-The function `freeSymtable()` in [sym.c](sym.c) walks these lists
-and calls `freeSym()` to free each node.
+[sym.c](sym.c) 파일의 `freeSymtable()` 함수는 이 리스트를 순회하며 각 노드를 `freeSym()`을 호출해 해제한다.
 
-Now, the question is: when is it safe to flush and free the symbol table
-in the parser? The answer is: we can flush the symbol table out after
-each function. But we can't free the symbol table, as the parser needs
-to look up pre-defined types and pre-defined symbols, e.g.
+이제 중요한 질문은 파서에서 언제 심볼 테이블을 flush하고 해제해도 안전한가이다. 답은 각 함수가 끝난 후 심볼 테이블을 flush할 수 있다는 것이다. 하지만 심볼 테이블을 해제할 수는 없다. 파서는 미리 정의된 타입과 심볼을 조회해야 하기 때문이다. 예를 들어:
 
 ```
   z= x + y;
 ```
 
-What types do these have, and are they compatible? Are they locals,
-arguments or globals? Have they even been declared? We need the full
-symbol table for this.
+이 변수들의 타입은 무엇이고 호환 가능한가? 이들은 로컬 변수인가, 파라미터인가, 전역 변수인가? 심지어 선언되었는가? 이를 위해 전체 심볼 테이블이 필요하다.
 
-So in [decl.c](decl.c) at the end of `function_declaration()`:
+따라서 [decl.c](decl.c) 파일의 `function_declaration()` 함수 끝 부분에서:
 
 ```
   ...
@@ -832,53 +602,38 @@ So in [decl.c](decl.c) at the end of `function_declaration()`:
 }
 ```
 
-## Reading Symbol Table Nodes
 
-The 6809 code generator, code-wise, is pretty big. It takes about 30K
-of RAM, so we have to work hard to not waste the remaining RAM. In
-the code generator, we only load symbols if we need them. And, each
-symbol might require knowledge of one or more symbols, e.g. a variable
-might be of type `struct foo`, so now we need to load the `struct foo`
-symbol and all of the symbols which are the fields of that structure.
+## 심볼 테이블 노드 읽기
 
-An issue is that the symbols are written out in order of when they are
-parsed, but we need to find symbols by their name or by their id.
-Example:
+6809 코드 생성기는 코드 크기가 상당히 크다. 약 30K의 RAM을 사용하므로 남은 메모리를 낭비하지 않도록 주의해야 한다. 코드 생성기에서는 필요한 심볼만 로드한다. 각 심볼은 하나 이상의 심볼에 대한 정보를 필요로 할 수 있다. 예를 들어, 변수가 `struct foo` 타입일 경우, `struct foo` 심볼과 해당 구조체의 필드들에 대한 심볼을 모두 로드해야 한다.
+
+문제는 심볼이 파싱된 순서대로 기록되지만, 심볼을 이름이나 ID로 찾아야 한다는 점이다. 예를 들어:
 
 ```
   struct foo x;
 ```
 
-We have to search for the `x` symbol by name. That node has the `ctypeid` for
-the `foo` symbol, so we need to search for that symbol by id.
+이 경우, `x` 심볼을 이름으로 검색해야 한다. 해당 노드는 `foo` 심볼에 대한 `ctypeid`를 가지고 있으므로, 이 ID로 심볼을 검색해야 한다.
 
-The majority of the work here is done by `loadSym()` in [sym.c](sym.c):
+이 작업의 대부분은 [sym.c](sym.c) 파일의 `loadSym()` 함수에서 처리된다:
 
 ```
-// Given a pointer to a symtable node, read in the next entry
-// in the on-disk symbol table. Do this always if loadit is true.
-// Only read one node if recurse is zero.
-// If loadit is false, load the data and return true if the symbol
-// a) matches the given name and stype or b) matches the id.
-// Return -1 when there is nothing left to read.
+// 심볼 테이블 노드 포인터가 주어지면, 디스크 상의 심볼 테이블에서 다음 항목을 읽어온다.
+// loadit가 true일 경우 항상 이 작업을 수행한다.
+// recurse가 0이면 하나의 노드만 읽는다.
+// loadit가 false일 경우, 데이터를 로드하고 주어진 이름과 stype에 일치하거나 ID에 일치하는 심볼이면 true를 반환한다.
+// 더 이상 읽을 것이 없으면 -1을 반환한다.
 static int loadSym(struct symtable *sym, char *name,
                    int stype, int id, int loadit, int recurse) {
  ...
 }
 ```
 
-I won't go through the code, but there a few things to note.
-We can search by `stype` and `name`, e.g. an S_FUNCTION called `printf()`.
-We can search by numeric id. Sometimes we want to recursively fetch nodes:
-this happens because a symbol with members (e.g. a struct) gets written
-out immediately followed by the members. Finally, we can just read in
-the next symbol always if `loadit` is set, e.g. when reading in members.
+코드를 자세히 설명하지는 않겠지만, 몇 가지 주의할 점이 있다. `stype`과 `name`으로 검색할 수 있다. 예를 들어, S_FUNCTION 타입의 `printf()`를 찾을 수 있다. 숫자 ID로도 검색할 수 있다. 때로는 노드를 재귀적으로 가져와야 하는데, 이는 멤버를 가진 심볼(예: 구조체)이 기록될 때 멤버들이 바로 뒤에 따라오기 때문이다. 마지막으로, `loadit`가 설정되어 있으면 항상 다음 심볼을 읽어온다. 예를 들어, 멤버들을 읽을 때 사용된다.
 
-The `findSyminfile()` function simply goes back to the start of the symbol
-file each time, and loops calling `loadSym()` until either the symbol
-required is found or we reach the end of the file. Not very efficient, is it?
+`findSyminfile()` 함수는 매번 심볼 파일의 시작으로 돌아가서 `loadSym()`을 호출하며 루프를 돌면서 필요한 심볼을 찾거나 파일의 끝에 도달할 때까지 반복한다. 효율적이지는 않다.
 
-The old compiler code had functions
+이전 컴파일러 코드에는 다음과 같은 함수들이 있었다:
 
 ```
 struct symtable *findlocl(char *name, int id);
@@ -891,79 +646,54 @@ struct symtable *findenumval(char *s);
 struct symtable *findtypedef(char *s);
 ```
 
-They are still here, but different. We first search in memory for the
-required symbol, then call `findSyminfile()` if the symbol isn't in
-memory. When a symbol is loaded from the file, it gets linked into the
-in-memory symbol table. Thus, we build up a cache of symbols as the
-code generator needs them.
+이 함수들은 여전히 존재하지만 다르게 동작한다. 먼저 메모리에서 필요한 심볼을 검색하고, 메모리에 없으면 `findSyminfile()`을 호출한다. 파일에서 심볼이 로드되면 메모리 심볼 테이블에 연결된다. 따라서 코드 생성기가 필요로 하는 심볼들을 캐시로 쌓아두게 된다.
 
-To ease memory, we should flush and free the symbol table periodically
-in the code generator. In [cgen.c](cgen.c) which has the main loop for
-the code generator:
+메모리를 절약하기 위해, 코드 생성기에서 주기적으로 심볼 테이블을 비우고 해제해야 한다. 코드 생성기의 메인 루프가 있는 [cgen.c](cgen.c) 파일에서:
 
 ```
   while (1) {
-    // Read the next function's top node in from file
+    // 파일에서 다음 함수의 최상위 노드를 읽어온다
     node= loadASTnode(0, 1);
     if (node==NULL) break;
 
-    // Generate the assembly code for the tree
+    // 트리에 대한 어셈블리 코드를 생성한다
     genAST(node, NOLABEL, NOLABEL, NOLABEL, 0);
 
-    // Free the symbols in the in-memory symbol tables.
+    // 메모리 심볼 테이블의 심볼들을 해제한다
     freeSymtable();
   }
 ```
 
-One minor issue that bit me when rewriting the compiler was that there
-are global symbols which are initialised and need to have assembly
-instructions generated for them. So, just above the above loop there
-is a call to a function called `allocateGlobals()`. This, in turn,
-calls a function in [sym.c](sym.c) called `loadGlobals()` which
-reads in any global symbols. Now we can call the appropriate
-code generator function as we walk the list of global symbols.
-At the end of `allocateGlobals()` we can `freeSymtable()`.
+컴파일러를 다시 작성할 때 한 가지 작은 문제가 있었다. 초기화된 전역 심볼들이 있고, 이들에 대한 어셈블리 명령어를 생성해야 한다는 점이다. 따라서 위 루프 바로 위에 `allocateGlobals()`라는 함수를 호출한다. 이 함수는 [sym.c](sym.c) 파일의 `loadGlobals()` 함수를 호출하여 전역 심볼들을 읽어온다. 이제 전역 심볼 리스트를 순회하면서 적절한 코드 생성기 함수를 호출할 수 있다. `allocateGlobals()`의 끝에서 `freeSymtable()`을 호출할 수 있다.
 
-And I've got one last comment. All of this works because there are not
-that many symbols in any C program, also taking into account the header
-files that get included. But if this were a real, production, compiler
-on a real Unix-like system, argh!! A typical program will pull in a
-dozen or so header files, each with dozens of typedefs, structs, enum
-values etc. We would run out of memory in no time.
+마지막으로 한 가지 더 언급할 점이 있다. 모든 C 프로그램에는 그리 많은 심볼이 없기 때문에 이 모든 것이 작동한다. 포함된 헤더 파일도 고려해야 하지만, 실제 Unix-like 시스템에서의 프로덕션 컴파일러라면 문제가 생길 것이다. 일반적인 프로그램은 수십 개의 헤더 파일을 포함하고, 각 헤더 파일에는 수십 개의 typedef, 구조체, 열거형 값 등이 있다. 이 경우 메모리가 금방 부족해질 것이다.
 
-So this all works but it's not scalable.
+따라서 이 방법은 작동하지만 확장성이 없다.
 
-## Writing AST Nodes
 
-Now on to the AST nodes. The first point I need to make is that there
-simply isn't enough memory to build the AST tree for a function, then
-write it out (or read it in). The bigger functions that we need to
-deal with have 3,000 or more AST nodes. They simply won't fit into 64K
-of RAM by themselves.
+## AST 노드 작성하기
 
-We can only keep a limited number of AST nodes in memory, but how?
-After all it's a tree. For any node, when do we need the sub-trees below it
-and when can we prune the tree?
+이제 AST 노드에 대해 다룬다. 첫 번째로 짚어야 할 점은 함수의 AST 트리를 모두 메모리에 올린 후 쓰거나 읽을 만큼 충분한 메모리가 없다는 것이다. 처리해야 할 대형 함수들은 3,000개 이상의 AST 노드를 가질 수 있다. 이는 64KB RAM에 모두 담기에는 너무 크다.
 
-In the top-level parser file [parse.c](parse.c) there is function called
-`serialiseAST()` which writes the given node and its children out to disk.
-This function gets called in a few places.
+따라서 메모리에는 제한된 수의 AST 노드만 유지해야 한다. 하지만 어떻게 가능할까? 결국 AST는 트리 구조다. 어떤 노드에 대해, 하위 트리가 필요한 시점과 트리를 정리할 수 있는 시점은 언제인가?
 
-In `compound_statement()` in [stmt.c](stmt.c):
+최상위 파서 파일 [parse.c](parse.c)에는 `serialiseAST()`라는 함수가 있다. 이 함수는 주어진 노드와 그 하위 노드를 디스크에 쓴다. 이 함수는 몇 군데에서 호출된다.
+
+[stmt.c](stmt.c)의 `compound_statement()` 함수 내부:
 
 ```
   while (1) {
     ...
-    // Parse a single statement
+    // 단일 문장 파싱
     tree = single_statement();
 
     ...
         left = mkastnode(A_GLUE, P_NONE, NULL, left, NULL, tree, NULL, 0);
 
-        // To conserve memory, we try to optimise the single statement tree.
-        // Then we serialise the tree and free it. We set the right pointer
-        // in left NULL; this will stop the serialiser from descending into
-        // the tree that we already serialised.
+        // 메모리를 절약하기 위해 단일 문장 트리를 최적화한다.
+        // 그런 다음 트리를 직렬화하고 메모리에서 해제한다.
+        // left의 right 포인터를 NULL로 설정하면 직렬화기가 이미 직렬화한 트리로
+        // 더 이상 내려가지 않는다.
         tree = optimise(tree);
         serialiseAST(tree);
         freetree(tree, 0);
@@ -971,35 +701,31 @@ In `compound_statement()` in [stmt.c](stmt.c):
   }
 ```
 
-So, each time there is a single statement, we parse this statement, build
-up the AST tree for it and then dump it to disk.
+즉, 단일 문장이 있을 때마다 해당 문장을 파싱하고 AST 트리를 구축한 후 디스크에 덤프한다.
 
-And at the end of `function_declaration()` in [decl.c](decl.c):
+[decl.c](decl.c)의 `function_declaration()` 함수 끝부분:
 
 ```
-  // Serialise the tree
+  // 트리 직렬화
   serialiseAST(tree);
   freetree(tree, 0);
 
-  // Flush out the in-memory symbol table.
-  // We are no longer in a function.
+  // 메모리 상의 심볼 테이블을 비운다.
+  // 더 이상 함수 내부가 아니다.
   flushSymtable();
   Functionid= NULL;
 
   return (oldfuncsym);
 ```
 
-This writes out the S_FUNCTION node which identifies the top AST node of the
-function.
+이 코드는 함수의 최상위 AST 노드를 식별하는 S_FUNCTION 노드를 쓴다.
 
-The code snippets above reference `freetree()`. Here it is in
-[tree.c](tree.c):
+위 코드 조각에서 `freetree()` 함수를 참조한다. 이 함수는 [tree.c](tree.c)에 정의되어 있다:
 
 ```
-// Free the contents of a tree. Possibly
-// because of tree optimisation, sometimes
-// left and right are the same sub-nodes.
-// Free the names if asked to do so.
+// 트리 내용을 해제한다. 트리 최적화로 인해
+// left와 right가 동일한 하위 노드인 경우도 있다.
+// 필요하다면 이름도 해제한다.
 void freetree(struct ASTnode *tree, int freenames) {
   if (tree==NULL) return;
 
@@ -1012,83 +738,64 @@ void freetree(struct ASTnode *tree, int freenames) {
 }
 ```
 
-## Reading AST Nodes
 
-I fought for quite a while to find a good approach for reading AST
-nodes back in to the code generator. We have to do two things:
+## AST 노드 읽기
 
-1. Find each function's top node and read it in.
-2. Once we have an AST node, read in its children using their ids.
+코드 생성기에서 AST 노드를 읽어들이는 좋은 방법을 찾기 위해 상당히 고민했다. 여기서 해결해야 할 두 가지 주요 과제가 있다:
 
-My first approach was, like the symbol table, rewind to the start
-of the file each time I did a search. OK, so that made the compilation 
-of an 1,000 line file take about 45 minutes. No, that's not good.
+1. 각 함수의 최상위 노드를 찾아서 읽어들인다.
+2. AST 노드를 얻은 후, 해당 노드의 자식 노드들을 ID를 통해 읽어들인다.
 
-I did think of trying to cache the numeric ids, type (S_FUNCTION or not)
-and file offset in memory. That's not going to work either. For each
-AST node that would be:
+처음에는 심볼 테이블과 마찬가지로 매번 파일의 시작 부분으로 되돌아가 검색을 시도했다. 하지만 이 방법은 1,000줄짜리 파일을 컴파일하는 데 약 45분이 걸렸다. 이는 분명히 좋은 방법이 아니다.
 
- - 2 bytes for the id
- - 1 byte for the S_FUNCTION boolean
- - 4 bytes for the file offset
+다음으로, 숫자 ID, 타입(S_FUNCTION 여부), 그리고 파일 오프셋을 메모리에 캐싱하는 방법을 고려했다. 하지만 이 방법도 적합하지 않았다. 각 AST 노드에 대해 다음과 같은 메모리가 필요하기 때문이다:
 
-An AST file with, say, 3,000 nodes now needs a 21,000 byte cache in memory.
-Ridiculous!
+- ID: 2바이트
+- S_FUNCTION 여부: 1바이트
+- 파일 오프셋: 4바이트
 
-Instead, I build a list of node file offsets in a separate temporary file.
-This is done by the `mkASTidxfile()` function in [tree.c](tree.c). The file
-is simply a sequence of offset values, each 4 bytes long. Position 0 holds
-the offset for id 0, position 4 the offset for id 1 etc.
+예를 들어, 3,000개의 노드가 있는 AST 파일은 21,000바이트의 캐시를 필요로 한다. 이는 비효율적이다!
 
-As we will need to find each function's top node in turn, and there are
-usually not many functions in a file, I chose to record all the S_FUNCTION
-nodes' offsets in an in-memory list:
+대신, 별도의 임시 파일에 노드 파일 오프셋 목록을 작성하기로 했다. 이 작업은 [tree.c](tree.c) 파일의 `mkASTidxfile()` 함수에서 수행된다. 이 파일은 단순히 4바이트 길이의 오프셋 값 시퀀스로 구성된다. 위치 0은 ID 0의 오프셋을, 위치 4는 ID 1의 오프셋을 저장하는 식이다.
 
-In [tree.c](tree.c), we have:
+각 함수의 최상위 노드를 순차적으로 찾아야 하며, 일반적으로 파일 내 함수의 수가 많지 않기 때문에, 모든 S_FUNCTION 노드의 오프셋을 메모리 내 목록에 기록하기로 결정했다.
+
+[tree.c](tree.c) 파일에는 다음과 같은 코드가 있다:
 
 ```
-// We keep an array of AST node offsets that
-// represent the functions in the AST file
+// AST 파일 내 함수를 나타내는 AST 노드 오프셋 배열을 유지한다
 long *Funcoffset;
-
 ```
 
-This gets `malloc()`d and `realloc()`d and grows to contain all the
-function offsets. The last value is 0 because the id value 0 never
-gets allocated in the parser.
+이 배열은 `malloc()`과 `realloc()`을 통해 동적으로 할당되며, 모든 함수 오프셋을 포함하도록 확장된다. 마지막 값은 0인데, 이는 파서에서 ID 값 0이 할당되지 않기 때문이다.
 
-Now, how do we use all of this information? In the same file there is a
-function called `loadASTnode()`:
+이 정보를 어떻게 활용할까? 동일한 파일에 `loadASTnode()`라는 함수가 있다:
 
 ```
-// Given an AST node id, load that AST node from the AST file.
-// If nextfunc is set, find the next AST node which is a function.
-// Allocate and return the node or NULL if it can't be found.
+// 주어진 AST 노드 ID를 통해 AST 파일에서 해당 노드를 로드한다.
+// nextfunc가 설정된 경우, 다음 함수 노드를 찾는다.
+// 노드를 할당하고 반환하거나, 찾을 수 없는 경우 NULL을 반환한다.
 struct ASTnode *loadASTnode(int id, int nextfunc) {
   ...
 }
 ```
 
-We can load a node given its id, or we can just load the next S_FUNCTION
-node. We use the temporary file with the offsets to quickly find where
-the node we want is positioned in the main AST file. Nice and simple!
+이 함수를 사용하면 특정 ID를 가진 노드를 로드하거나, 다음 S_FUNCTION 노드를 로드할 수 있다. 임시 파일에 저장된 오프셋을 활용해 원하는 노드가 메인 AST 파일 내에서 어디에 위치하는지 빠르게 찾을 수 있다. 간단하고 효과적인 방법이다!
 
-## Using loadASTnode() and Freeing AST nodes
 
-Unfortunately, there is not a single place where we can call
-`loadASTnode()`. Anywhere in the architecture-independent generation code
-in [gen.c](gen.c), where we previously used the pointers `n->left`, `n->mid` or
-`n->right`, we now have to call `loadASTnode()`, e.g.
+## loadASTnode() 사용과 AST 노드 해제
+
+안타깝게도 `loadASTnode()`를 호출할 수 있는 단일한 위치는 없다. [gen.c](gen.c)에 있는 아키텍처 독립적인 코드 생성 부분에서, 이전에 `n->left`, `n->mid`, `n->right` 포인터를 사용했던 모든 곳에서 이제는 `loadASTnode()`를 호출해야 한다. 예를 들면 다음과 같다.
 
 ```
-// Given an AST, an optional label, and the AST op
-// of the parent, generate assembly code recursively.
-// Return the register id with the tree's final value.
+// AST와 선택적 레이블, 그리고 부모의 AST 연산자를 받아
+// 어셈블리 코드를 재귀적으로 생성한다.
+// 트리의 최종 값을 담은 레지스터 ID를 반환한다.
 int genAST(struct ASTnode *n, int iflabel, int looptoplabel,
            int loopendlabel, int parentASTop) {
   struct ASTnode *nleft, *nmid, *nright;
 
-  // Load in the sub-nodes
+  // 하위 노드를 로드한다.
   nleft=loadASTnode(n->leftid,0);
   nmid=loadASTnode(n->midid,0);
   nright=loadASTnode(n->rightid,0);
@@ -1096,136 +803,95 @@ int genAST(struct ASTnode *n, int iflabel, int looptoplabel,
 }
 ```
 
-You will find about fifteen calls to `loadASTnode()` in [gen.c](gen.c).
+[gen.c](gen.c)에서 약 15번 정도 `loadASTnode()`를 호출하는 것을 확인할 수 있다.
 
-Back in the parser, we could parse a single statement and then call
-`freetree()` once we have written it out to disk. Here in the code
-generator, I decided to be more specific. Once I'd definitely finished
-using an AST node, I call the function `freeASTnode()` defined in
-[tree.c](tree.c) to free its memory. You will find about twelve calls
-to this function in the code generator.
+파서에서는 단일 문장을 파싱한 후, 디스크에 쓰기가 완료되면 `freetree()`를 호출할 수 있었다. 하지만 코드 생성기에서는 더 구체적으로 접근했다. AST 노드를 확실히 사용 완료한 후, [tree.c](tree.c)에 정의된 `freeASTnode()` 함수를 호출해 메모리를 해제했다. 코드 생성기에서 이 함수를 약 12번 정도 호출하는 것을 확인할 수 있다.
 
-That's about it for the changes to the symbol table and AST node handling.
+이것이 심볼 테이블과 AST 노드 처리에 대한 주요 변경 사항이다.
 
-## General Memory Freeing
 
-Back up when I started talking about trying to fit the compiler into 64K,
-my third point was: try to garbage collect unused data structures with
-`free()` wherever we can.
+## 메모리 해제 일반론
 
-Well, C is probably the worst language to try and do garbage collection!
-For a while I tried to sprinkle `free()`s where I thought they would
-work but then the compiler would either segfault or, worse, use a
-node that had been overwritten and go into crazy behaviour mode.
+컴파일러를 64K 메모리에 맞추려고 할 때 세 번째로 언급한 점은 사용하지 않는 데이터 구조를 `free()`로 가비지 컬렉션을 시도하는 것이었다.
 
-Fortunately, I've been able to get down to four main functions that
-garbage collect: `freeSym()`, `freeSymtable()`, `freeASTnode()` and
-`freetree()`.
+C 언어는 가비지 컬렉션을 시도하기에 가장 부적합한 언어다. 한동안 `free()`를 사용할 만한 곳에 넣어보려고 시도했지만, 컴파일러는 세그먼트 폴트를 일으키거나, 더 나쁜 경우 이미 덮어씌워진 노드를 사용하면서 비정상적인 동작을 보였다.
 
-That hasn't solved all the garbage collection issues. I've recently
-resorted to using [Valgrind](https://valgrind.org/) to show me where
-I have memory leaks. I try to find the worst cases and then work out
-where I can insert a `free()` that helps. This has got the compiler
-to the point where it _can_ self-compile on the 6809, but there is
-definitely room for improvement!
+다행히 네 가지 주요 함수를 통해 가비지 컬렉션을 할 수 있게 되었다: `freeSym()`, `freeSymtable()`, `freeASTnode()`, 그리고 `freetree()`.
 
-## The Peephole Optimiser
+이것이 모든 가비지 컬렉션 문제를 해결한 것은 아니다. 최근에는 [Valgrind](https://valgrind.org/)를 사용해 메모리 누수가 발생하는 위치를 찾고 있다. 가장 심각한 경우를 찾은 다음, `free()`를 삽입할 수 있는 위치를 파악해 개선하고 있다. 이 방법으로 컴파일러가 6809에서 자체 컴파일을 할 수 있을 정도까지는 되었지만, 여전히 개선의 여지가 많다!
 
-The peephole optimiser, [cpeep.c](cpeep.c) was originally written
-by Christian W. Fraser in 1984. Looking at the [documentation](docs/copt.1),
-it has been worked on by several people since then. I imported it from the
-[Fuzix Compiler Kit](https://github.com/EtchedPixels/Fuzix-Compiler-Kit)
-and changed its name. I also changed the rule termination to be
-`====` instead of a blank line; I find it easier to see where rules end.
 
-The 6809 backend can spit out some bad code. The optimiser helps to
-get rid of some of it. Have a look at the [rules.6809](lib/6809/rules.6809)
-file to see what the rules are; I think I've documented them well enough.
-There is a [test file](tests/input.rules.6809) which I use to check that
-the rules work OK.
+## 피홀 최적화 도구
 
-## Building and Running the Compiler - QBE
+피홀 최적화 도구는 [cpeep.c](cpeep.c) 파일에 구현되어 있으며, 크리스천 W. 프레이저가 1984년에 처음 개발했다. [문서](docs/copt.1)를 보면 그 이후 여러 사람이 이 도구를 개선했다. 나는 이 도구를 [Fuzix Compiler Kit](https://github.com/EtchedPixels/Fuzix-Compiler-Kit)에서 임포트한 후 이름을 변경했다. 또한 규칙의 끝을 나타내는 방식을 빈 줄 대신 `====`로 바꿨다. 이렇게 하면 규칙이 끝나는 지점을 더 쉽게 확인할 수 있다.
 
-To build the compiler on a Linux box so that it outputs x68 code, you
-first need to download [QBE 1.2](https://c9x.me/compile/releases.html),
-build it and install the `qbe` binary somewhere on your `$PATH`.
+6809 백엔드는 때때로 비효율적인 코드를 생성한다. 이 최적화 도구는 그런 코드를 제거하는 데 도움을 준다. [rules.6809](lib/6809/rules.6809) 파일을 살펴보면 어떤 규칙들이 적용되는지 확인할 수 있다. 나는 이 규칙들을 충분히 잘 설명했다고 생각한다. 또한 규칙이 제대로 동작하는지 확인하기 위해 [테스트 파일](tests/input.rules.6809)을 사용한다.
 
-Next, you need to make the `/opt/wcc` directory and make it writable
-by yourself.
 
-Now you can `make; make install`, which will build the compiler and put
-the executables into `/opt/wcc/bin`, the header files into ``/opt/wcc/include`
-and the 6809 libraries into ``/opt/wcc/lib/6809`.
+## 컴파일러 빌드 및 실행 - QBE
 
-Now make sure that `/opt/wcc/bin/wcc` (the compiler front-end) is on your
-`$PATH`. I usually put a symlink to it into my private `bin` folder.
+리눅스 환경에서 x68 코드를 출력하는 컴파일러를 빌드하려면 먼저 [QBE 1.2](https://c9x.me/compile/releases.html)를 다운로드하고, 빌드한 후 `qbe` 바이너리를 `$PATH`에 포함된 경로에 설치해야 한다.
 
-From here, you can `make test` which goes into the `tests/` directory and
-runs all the tests that are in there.
+다음으로 `/opt/wcc` 디렉토리를 생성하고 자신이 쓰기 권한을 가지도록 설정한다.
 
-## Building and Running the Compiler - 6809
+이제 `make; make install` 명령어를 실행하면 컴파일러가 빌드되고, 실행 파일은 `/opt/wcc/bin`에, 헤더 파일은 `/opt/wcc/include`에, 6809 라이브러리는 `/opt/wcc/lib/6809`에 설치된다.
 
-This is a bit complicated.
+이제 `/opt/wcc/bin/wcc`(컴파일러 프론트엔드)가 `$PATH`에 있는지 확인한다. 일반적으로 개인 `bin` 폴더에 심볼릭 링크를 만들어 사용한다.
 
-Firstly, you need to download the
-[Fuzix Bintools](https://github.com/EtchedPixels/Fuzix-Bintools),
-and build at least the assembler `as6809` and the linker `ld6809`.
-Now install these somewhere on your `$PATH`.
+여기서 `make test`를 실행하면 `tests/` 디렉토리로 이동해 해당 디렉토리에 있는 모든 테스트를 실행한다.
 
-Next, download my [Fuzemsys](https://github.com/DoctorWkt/Fuzemsys)
-project. This has a 6809 emulator which we need to run the 6809 binaries.
-Go into the `emulators/` directory and `make emu6809`. Once this is
-built, install the emulator somewhere on your `$PATH`.
 
-If you haven't already, make the `/opt/wcc` directory as before,
-come back to this project and `make; make install` to install it.
-Make sure that `/opt/wcc/bin/wcc` (the compiler front-end) is on your `$PATH`.
+## 컴파일러 빌드 및 실행 - 6809
 
-From here, you can `make 6test` which goes into the `tests/` directory and
-runs all the tests that are in there. This time, we build 6809 binaries
-and use the 6809 emulator to run them.
+이 과정은 조금 복잡하다.
 
-## Doing The QBE Triple Test
+먼저 [Fuzix Bintools](https://github.com/EtchedPixels/Fuzix-Bintools)를 다운로드하고, 최소한 어셈블러 `as6809`와 링커 `ld6809`를 빌드해야 한다. 이제 이 도구들을 `$PATH`에 있는 디렉토리에 설치한다.
 
-With `qbe` installed and you have done a `make install; make test` to
-check that the compiler works, you can now do a `make triple`. This:
+다음으로, [Fuzemsys](https://github.com/DoctorWkt/Fuzemsys) 프로젝트를 다운로드한다. 이 프로젝트에는 6809 바이너리를 실행하기 위해 필요한 6809 에뮬레이터가 포함되어 있다. `emulators/` 디렉토리로 이동한 후 `make emu6809`를 실행하여 에뮬레이터를 빌드한다. 빌드가 완료되면 이 에뮬레이터를 `$PATH`에 있는 디렉토리에 설치한다.
 
- - builds the compiler with your native compiler,
- - builds the compiler with itself into the `L1` directory,
- - builds the compiler with itself again into the `L2` directory, and
- - checksums the `L1` and `L2` executables to ensure they are identical:
+아직 하지 않았다면, 이전과 마찬가지로 `/opt/wcc` 디렉토리를 생성한 후 이 프로젝트로 돌아와 `make; make install`을 실행하여 설치한다. `/opt/wcc/bin/wcc`(컴파일러 프론트엔드)가 `$PATH`에 있는지 확인한다.
+
+이제 `make 6test`를 실행할 수 있다. 이 명령어는 `tests/` 디렉토리로 이동하여 모든 테스트를 실행한다. 이번에는 6809 바이너리를 빌드하고 6809 에뮬레이터를 사용해 실행한다.
+
+
+## QBE 트리플 테스트 수행하기
+
+`qbe`를 설치하고 `make install; make test`를 실행해 컴파일러가 정상적으로 작동하는지 확인했다면, 이제 `make triple`을 실행할 수 있다. 이 명령어는 다음과 같은 작업을 수행한다:
+
+1. 네이티브 컴파일러로 컴파일러를 빌드한다.
+2. 컴파일러를 자기 자신으로 다시 빌드하여 `L1` 디렉터리에 저장한다.
+3. 컴파일러를 다시 한 번 자기 자신으로 빌드하여 `L2` 디렉터리에 저장한다.
+4. `L1`과 `L2` 디렉터리의 실행 파일 체크섬을 비교해 동일한지 확인한다:
 
 ```
 0f14b990d9a48352c4d883cd550720b3  L1/detok
 0f14b990d9a48352c4d883cd550720b3  L2/detok
 3cc59102c6a5dcc1661b3ab3dcce5191  L1/cgenqbe
 3cc59102c6a5dcc1661b3ab3dcce5191  L2/cgenqbe
-3e036c748bdb5e3ffc0e03506ed00243  L2/wcc      <-- different
+3e036c748bdb5e3ffc0e03506ed00243  L2/wcc      <-- 다름
 6fa26e506a597c9d9cfde7d168ae4640  L1/detree
 6fa26e506a597c9d9cfde7d168ae4640  L2/detree
 7f8e55a544400ab799f2357ee9cc4b44  L1/cscan
 7f8e55a544400ab799f2357ee9cc4b44  L2/cscan
-912ebc765c27a064226e9743eea3dd30  L1/wcc      <-- different
+912ebc765c27a064226e9743eea3dd30  L1/wcc      <-- 다름
 9c6a66e8b8bbc2d436266c5a3ca622c7  L1/cparseqbe
 9c6a66e8b8bbc2d436266c5a3ca622c7  L2/cparseqbe
 cb493abe1feed812fb4bb5c958a8cf83  L1/desym
 cb493abe1feed812fb4bb5c958a8cf83  L2/desym
 ```
 
-The `wcc` binaries are different as one has `L1` in the path to find
-the executables for the phases, and the other has `L2` instead.
+`wcc` 바이너리는 서로 다르다. 하나는 `L1` 경로를 사용해 단계별 실행 파일을 찾고, 다른 하나는 `L2` 경로를 사용하기 때문이다.
 
-## Doing The 6809 Triple Test
 
-Instead of using the `Makefile` to do this, I have a separate Bash shell
-script called `6809triple_test`. Run this to:
+## 6809 삼중 테스트 수행
 
- - build the compiler with your native compiler,
- - build the 6809 compiler with itself into the `L1` directory, and
- - build the 6809 compiler with itself again into the `L2` directory.
+`Makefile` 대신 `6809triple_test`라는 별도의 Bash 쉘 스크립트를 사용한다. 이 스크립트를 실행하면 다음과 같은 작업을 수행할 수 있다:
 
-This is slow! On my decent laptop it takes about 45 minutes. Eventually
-you can do your own checksums to verify that the executables are identical:
+- 네이티브 컴파일러로 컴파일러를 빌드한다.
+- 6809 컴파일러를 스스로 사용해 `L1` 디렉터리에 빌드한다.
+- 6809 컴파일러를 다시 스스로 사용해 `L2` 디렉터리에 빌드한다.
+
+이 과정은 시간이 오래 걸린다. 성능이 괜찮은 노트북에서도 약 45분이 소요된다. 최종적으로 생성된 실행 파일이 동일한지 확인하려면 직접 체크섬을 계산해볼 수 있다:
 
 ```
 $ md5sum L1/_* L2/_* | sort
@@ -1243,23 +909,23 @@ e9c8b2c12ea5bd4f62091fafaae45971  L1/_cparse6809
 e9c8b2c12ea5bd4f62091fafaae45971  L2/_cparse6809
 ```
 
-At the moment I'm having problems with running `wcc` as a 6809 executable,
-so I use the x64 `wcc` binary instead.
+현재 `wcc`를 6809 실행 파일로 실행하는 데 문제가 있어서, 대신 x64 `wcc` 바이너리를 사용하고 있다.
 
-## Example Command-line Actions
 
-Here is a capture of the commands I used to do all the above:
+## 커맨드라인 작업 예제
+
+위 작업을 수행하기 위해 사용한 커맨드라인 명령어를 정리했다:
 
 ```
-# Download the acwj repository
+# acwj 저장소 다운로드
 cd /usr/local/src
 git clone https://github.com/DoctorWkt/acwj
 
-# Make the destination directory
+# 목적지 디렉토리 생성
 sudo mkdir /opt/wcc
 sudo chown wkt:wkt /opt/wcc
 
-# Install QBE
+# QBE 설치
 cd /usr/local/src
 wget https://c9x.me/compile/release/qbe-1.2.tar.xz
 xz -d qbe-1.2.tar.xz 
@@ -1268,28 +934,28 @@ cd qbe-1.2/
 make
 sudo make install
 
-# Install the wcc compiler
+# wcc 컴파일러 설치
 cd /usr/local/src/acwj/64_6809_Target
 make install
 
-# Put wcc on my $PATH
+# wcc를 $PATH에 추가
 cd ~/.bin
 ln -s /opt/wcc/bin/wcc .
 
-# Do the triple test on x64 using QBE
+# QBE를 사용해 x64에서 triple 테스트 실행
 cd /usr/local/src/acwj/64_6809_Target
 make triple
 
-# Get the Fuzix-Bintools and build
-# the 6809 assembler and linker
+# Fuzix-Bintools 다운로드 및 
+# 6809 어셈블러와 링커 빌드
 cd /usr/local/src
 git clone https://github.com/EtchedPixels/Fuzix-Bintools
 cd Fuzix-Bintools/
 make as6809 ld6809
 cp as6809 ld6809 ~/.bin
 
-# Get Fuzemsys and build the 6809 emulator.
-# I needed to install the readline library.
+# Fuzemsys 다운로드 및 6809 에뮬레이터 빌드
+# readline 라이브러리 설치 필요
 sudo apt-get install libreadline-dev
 cd /usr/local/src
 git clone https://github.com/DoctorWkt/Fuzemsys
@@ -1297,71 +963,57 @@ cd Fuzemsys/emulators/
 make emu6809
 cp emu6809 ~/.bin
 
-# Go back to the compiler and do the
-# triple test using the 6809 emulator
+# 컴파일러로 돌아가 6809 에뮬레이터를 사용해
+# triple 테스트 실행
 cd /usr/local/src/acwj/64_6809_Target
 ./6809triple_test 
 ```
 
-## Is This Self-Compiling?
 
-We can pass the triple test with the 6809 CPU. But, is this really
-self-compiling? Well, it is, but it is definitely _not_ self-hosting.
+## 이 컴파일러는 자체 컴파일이 가능한가?
 
-The things that this C compiler _doesn't_ build include:
+6809 CPU로 세 가지 테스트를 통과할 수 있다. 하지만 이 컴파일러가 진정한 의미의 자체 컴파일이 가능한가? 그렇다. 그러나 확실히 자체 호스팅은 아니다.
 
- - a C pre-processor
- - the peephole optimiser
- - the 6809 assembler
- - the 6809 linker
- - an `ar` archiver for the 6809
- - the compiler helper functions, and the C library. At the moment,
-   I'm using the Fuzix Compiler Kit to build these functions. The
-   Fuzix Compiler speaks "real" C; this compiler only speaks a subset
-   of the C language, so it can't build these functions.
+이 C 컴파일러가 생성하지 않는 것들은 다음과 같다:
 
-So, if I wanted to move all of this over to my
-[MMU09 SBC](https://github.com/DoctorWkt/MMU09), then I would need to
-use the Fuzix Compiler to build the assembler, linker, helper functions
-and the C library.
+- C 전처리기
+- 피홀 최적화 도구
+- 6809 어셈블러
+- 6809 링커
+- 6809용 `ar` 아카이버
+- 컴파일러 헬퍼 함수와 C 라이브러리. 현재는 Fuzix Compiler Kit을 사용해 이 함수들을 빌드한다. Fuzix Compiler는 '진짜' C를 지원하지만, 이 컴파일러는 C 언어의 일부만 지원하기 때문에 이 함수들을 빌드할 수 없다.
 
-Thus, the "acwj" compiler can definitely take pre-processed C source code
-and, using a scanner, a parser and a code generator, output 6809 assembly
-code. And the "acwj" compiler can do the above on its own code.
+따라서 [MMU09 SBC](https://github.com/DoctorWkt/MMU09)로 모든 것을 옮기려면 Fuzix Compiler를 사용해 어셈블러, 링커, 헬퍼 함수, 그리고 C 라이브러리를 빌드해야 한다.
 
-That makes our compiler a self-compiling compiler, but not a self-hosting
-compiler!
+결론적으로, "acwj" 컴파일러는 전처리된 C 소스 코드를 받아 스캐너, 파서, 코드 생성기를 통해 6809 어셈블리 코드를 출력할 수 있다. 또한 "acwj" 컴파일러는 자신의 코드에 대해 위 과정을 수행할 수 있다.
 
-## Future Work
+이로 인해 이 컴파일러는 자체 컴파일이 가능하지만, 자체 호스팅은 아니다!
 
-Right now, this isn't a production compiler. It's not even a proper C
-compiler - it only knows a subset of the C language.
 
-Some things to do would be:
+## 향후 작업
 
- - make it more robust
- - get on top of the garbage collection
- - add unsigned types
- - add floats and doubles
- - add more of the real C language to become self-hosting
- - improve the quality of the 6809 code generator
- - improve the speed of the 6809 compiler
- - perhaps, take a big step back, use the lessons
-   learned through this whole journey and rewrite
-   a new compiler from scratch!
+현재 이 컴파일러는 프로덕션 수준이 아니다. 심지어 제대로 된 C 컴파일러도 아니다. C 언어의 일부만 지원한다.
 
-## Conclusion
+앞으로 해야 할 작업은 다음과 같다:
 
-I'm pretty burned out after this part - it's taken a few months of
-work as evidenced by my [notes](docs/NOTES.md). And we are now up
-to part 64 of the "acwj" journey; that's a good power of two :-)
+- 더 견고하게 만들기
+- 가비지 컬렉션을 제대로 처리하기
+- 부호 없는 타입 추가하기
+- float와 double 타입 추가하기
+- 실제 C 언어의 더 많은 기능을 추가해 자체 호스팅 가능하게 만들기
+- 6809 코드 생성기의 품질 개선하기
+- 6809 컴파일러의 속도 향상하기
+- 또는, 이 모든 과정에서 배운 교훈을 바탕으로 큰 발걸음을 내딛어 완전히 새로운 컴파일러를 처음부터 다시 작성하기!
 
-So I won't say definitely not, but I think this is where I'll end the
-"acwj" journey. If you have followed along through some/most/all of
-the parts, then thank you for spending the time reading my notes.
-I hope it's been useful.
 
-And, now, if you need a sort-of C compiler for an 8-bit or 16-bit
-CPU with a limited set of registers, this might be a starting point for you!
+## 마치며
 
-Cheers, Warren
+이번 파트를 마치며 꽤 지치게 되었다. [노트](docs/NOTES.md)를 보면 알 수 있듯이 몇 달간의 작업이었다. 이제 "acwj" 여정의 64번째 파트까지 왔다. 2의 거듭제곱으로 보기 좋은 숫자다.
+
+확실히 끝이라고 말하진 않겠지만, 이쯤에서 "acwj" 여정을 마무리하려고 한다. 여러분이 일부 혹은 대부분, 또는 모든 파트를 따라와 주었다면, 내 노트를 읽는 데 시간을 할애해 준 것에 감사드린다. 이 내용이 유용했기를 바란다.
+
+이제 여러분에게 8비트나 16비트 CPU를 위한 일종의 C 컴파일러가 필요하다면, 여기서 시작점을 찾을 수 있을 것이다.
+
+건배, Warren
+
+

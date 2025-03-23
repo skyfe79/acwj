@@ -1,27 +1,18 @@
-# Part 43: Bugfixes and More Operators
+# 43부: 버그 수정과 추가 연산자
 
-I've started to pass some of the source code of our compiler as input to itself,
-as this is how we are going to get it to eventually compile itself. The
-first big hurdle is to get the compiler to parse and recognise its source code.
-The second big hurdle will be to get the compiler to generate correct, working,
-code from its source code.
+컴파일러의 소스 코드 일부를 컴파일러 자체에 입력으로 전달하기 시작했다. 이 방법은 결국 컴파일러가 스스로를 컴파일할 수 있게 만드는 과정이다. 첫 번째 큰 장벽은 컴파일러가 자신의 소스 코드를 파싱하고 인식하도록 하는 것이다. 두 번째 큰 장벽은 컴파일러가 소스 코드로부터 정확하고 작동하는 코드를 생성하도록 하는 것이다.
 
-This is also the first time that the compiler has been given some substantial
-input to chew on, and it's going to reveal a bunch of bugs, misfeatures and
-missing features.
+이번이 컴파일러가 상당한 크기의 입력을 받아 처리하는 첫 번째 시도다. 이 과정에서 여러 버그, 잘못된 기능, 그리고 누락된 기능들이 드러날 것이다.
 
-## Bugfixes
 
-I started with `cwj -S defs.h` and found several header files missing. For now
-they exist but are empty. With these in place, the compiler crashes with a
-segfault. I had a few pointers which should be initialised to NULL and places
-where I wasn't checking for a NULL pointer.
+## 버그 수정
 
-## Missing Features
+`cwj -S defs.h` 명령어로 시작했을 때, 여러 헤더 파일이 누락된 것을 발견했다. 현재 이 파일들은 존재하지만 비어 있다. 이 파일들을 추가한 후, 컴파일러가 세그멘테이션 오류(segfault)로 중단되는 문제가 발생했다. 몇몇 포인터를 NULL로 초기화해야 했고, NULL 포인터를 확인하지 않은 부분도 있었다.
 
-Next up, I hit `enum { NOREG = -1 ...` in `defs.h` and realised that the
-scanner wasn't dealing with integer literals which start with a minus sign.
-So I've added this code to `scan()` in `scan.c`:
+
+## 누락된 기능
+
+다음으로, `defs.h` 파일에서 `enum { NOREG = -1 ...` 부분을 만나면서 스캐너가 마이너스 기호로 시작하는 정수 리터럴을 처리하지 못한다는 사실을 깨달았다. 그래서 `scan.c` 파일의 `scan()` 함수에 다음과 같은 코드를 추가했다:
 
 ```c
     case '-':
@@ -29,7 +20,7 @@ So I've added this code to `scan()` in `scan.c`:
         t->token = T_DEC;
       } else if (c == '>') {
         t->token = T_ARROW;
-      } else if (isdigit(c)) {          // Negative int literal
+      } else if (isdigit(c)) {          // 음의 정수 리터럴
         t->intvalue = -scanint(c);
         t->token = T_INTLIT;
       } else {
@@ -38,113 +29,83 @@ So I've added this code to `scan()` in `scan.c`:
       }
 ```
 
-If a '-' is followed by a digit, scan in the integer literal and negate its
-value. At first I was worried that the expression `1 - 1` would be treated
-as the two tokens '1', 'int literal -1', but I forgot that `next()` doesn't
-skip the space. So, by having a space between the '-' and the '1', the
-expression `1 - 1` is correctly parsed as '1', '-', '1'.
+'-' 뒤에 숫자가 오는 경우, 정수 리터럴을 스캔하고 그 값을 음수로 변환한다. 처음에는 `1 - 1`과 같은 표현식이 '1', '정수 리터럴 -1'로 처리될까 걱정했지만, `next()` 함수가 공백을 건너뛰지 않는다는 사실을 잊고 있었다. 따라서 '-'와 '1' 사이에 공백이 있으면 `1 - 1`이 올바르게 '1', '-', '1'로 파싱된다.
 
-However, as [Luke Gruber](https://github.com/luke-gru) has pointed out,
-this also means that the input `1-1` **is** treated as `1 -1` instead of
-`1 - 1`. In other words, the scanner is too greedy and forces `-1` to
-always be treated as a T_INTLIT when sometimes it shouldn't be. I'm going
-to leave this for now, as we can work around it when writing our source
-code. Obviously, in a production compiler this would have to be fixed.
+하지만 [Luke Gruber](https://github.com/luke-gru)가 지적한 것처럼, 이는 `1-1`과 같은 입력이 `1 -1`로 처리된다는 것을 의미한다. 즉, 스캐너가 너무 탐욕적이어서 `-1`이 항상 T_INTLIT로 처리되도록 강제하는데, 때로는 그렇게 해서는 안 된다. 현재는 이 문제를 그대로 두기로 했다. 소스 코드를 작성할 때 이 문제를 우회할 수 있기 때문이다. 물론, 상용 컴파일러에서는 이 문제를 반드시 해결해야 한다.
 
-## Misfeatures
 
-In the AST node and symbol table node structures, I've been using unions to
-try and keep the size of each node down. I guess I'm a bit old school and
-I worry about wasting memory. An example is the AST node structure:
+## 잘못된 설계
+
+AST 노드와 심볼 테이블 노드 구조에서, 각 노드의 크기를 줄이기 위해 공용체(union)를 사용했다. 메모리 낭비를 우려하는 나의 오래된 습관 때문이다. 예를 들어, AST 노드 구조는 다음과 같다:
 
 ```c
 struct ASTnode {
-  int op;                       // "Operation" to be performed on this tree
+  int op;                       // 트리에서 수행할 "연산"
   ...
-  union {                       // the symbol in the symbol table
-    int intvalue;               // For A_INTLIT, the integer value
-    int size;                   // For A_SCALE, the size to scale by
+  union {                       // 심볼 테이블의 심볼
+    int intvalue;               // A_INTLIT일 때, 정수 값
+    int size;                   // A_SCALE일 때, 스케일링할 크기
   };
 };
 ```
 
-But the compiler isn't able to parse and work with a union inside a struct,
-and especially an unnamed union inside a struct. I could add this functionality,
-but it will be easier to redo the two structs where I do this. So, I've
-made these changes:
+하지만 컴파일러는 구조체 내부의 공용체, 특히 이름 없는 공용체를 파싱하고 처리할 수 없다. 이 기능을 추가할 수도 있지만, 이렇게 사용한 두 구조체를 다시 작성하는 것이 더 쉬운 방법이다. 그래서 다음과 같이 변경했다:
 
 ```c
-// Symbol table structure
+// 심볼 테이블 구조
 struct symtable {
-  char *name;                   // Name of a symbol
+  char *name;                   // 심볼의 이름
   ...
-#define st_endlabel st_posn     // For functions, the end label
-  int st_posn;                  // For locals, the negative offset
-                                // from the stack base pointer
+#define st_endlabel st_posn     // 함수의 경우, 종료 레이블
+  int st_posn;                  // 지역 변수의 경우, 스택 베이스 포인터로부터의 음수 오프셋
   ...
 };
 
-// Abstract Syntax Tree structure
+// 추상 구문 트리 구조
 struct ASTnode {
-  int op;                       // "Operation" to be performed on this tree
+  int op;                       // 트리에서 수행할 "연산"
   ...
-#define a_intvalue a_size       // For A_INTLIT, the integer value
-  int a_size;                   // For A_SCALE, the size to scale by
+#define a_intvalue a_size       // A_INTLIT일 때, 정수 값
+  int a_size;                   // A_SCALE일 때, 스케일링할 크기
 };
 ```
 
-This way, I still have two named fields sharing the same location in each
-struct, but the compiler will see only the one field name in each struct.
-I've given each `#define` a different prefix to prevent pollution of the
-global namespace.
+이제 두 구조체에서 각각 두 개의 필드가 같은 위치를 공유하지만, 컴파일러는 각 구조체에서 하나의 필드 이름만 보게 된다. 전역 네임스페이스 오염을 방지하기 위해 각 `#define`에 다른 접두사를 붙였다.
 
-A consequence of this is that I've had to rename the `endlabel`, `posn`,
-`intvalue` and `size` fields across half a dozen source files. C'est la vie.
+이 변경으로 인해 `endlabel`, `posn`, `intvalue`, `size` 필드를 여러 소스 파일에서 이름을 바꿔야 했다. 어쩔 수 없는 일이다.
 
-So now the compiler, when doing `cwj -S misc.c` gets up to:
+이제 컴파일러가 `cwj -S misc.c`를 실행하면 다음과 같은 오류가 발생한다:
 
 ```
 Expected:] on line 16 of data.h, where the line is
 extern char Text[TEXTLEN + 1];
 ```
 
-This fails as the compiler as it stands does not parse expressions in a
-global variable declaration. I'm going to have to rethink this.
+현재 컴파일러는 전역 변수 선언에서 표현식을 파싱할 수 없어 실패한다. 이 부분을 다시 생각해봐야 한다.
 
-My thoughts so far are to use `binexpr()` to parse the expression,
-and to add some optimisation code to perform
-[constant folding](https://en.wikipedia.org/wiki/Constant_folding)
-on the resulting AST tree. This should result in a single A_INTLIT node
-from which I can extract the literal value. I could even let `binexpr()`
-parse any casts, e.g.
+지금까지의 생각은 `binexpr()`를 사용해 표현식을 파싱하고, 결과로 나온 AST 트리에서 [상수 폴딩](https://en.wikipedia.org/wiki/Constant_folding)을 수행하는 최적화 코드를 추가하는 것이다. 이렇게 하면 단일 A_INTLIT 노드를 얻을 수 있고, 여기서 리터럴 값을 추출할 수 있다. 심지어 `binexpr()`가 캐스트도 파싱하도록 할 수 있다. 예를 들어:
 
 ```c
  char x= (char)('a' + 1024);
 ```
 
-Anyway, that's something for the future. I was going to do constant folding
-at some point, but I thought it would be further down the track.
+어쨌든 이건 나중에 할 일이다. 상수 폴딩을 언젠가는 할 생각이었지만, 더 먼 미래의 일이라고 생각했다.
 
-What I will do in this part of the journey is add some more operators:
-specifically, '+=', '-=', '*=' and '/='. We currently use the first two operators
-in the compiler's source code.
+이번 단계에서 할 일은 몇 가지 연산자를 추가하는 것이다. 구체적으로 '+=', '-=', '*=', '/=' 연산자를 추가할 예정이다. 현재 컴파일러 소스 코드에서 처음 두 연산자를 사용하고 있다.
 
-## New Tokens, Scanning and Parsing
 
-Adding new keywords to our compiler is easy: a new token and a change to the
-scanner. Adding new operators is much harder as we have to:
+## 새로운 토큰, 스캐닝 및 파싱
 
-  + align the token with the AST operation
-  + deal with precedence and associativity.
+컴파일러에 새로운 키워드를 추가하는 것은 간단하다. 새로운 토큰을 정의하고 스캐너를 수정하면 된다. 하지만 새로운 연산자를 추가하는 것은 훨씬 복잡하다. 다음과 같은 작업이 필요하기 때문이다:
 
-We are adding four operators: '+=', '-=', '*=' and '/='. They have matching
-tokens: T_ASPLUS, T_ASMINUS, T_ASSTAR and T_ASSLASH. These have
-corresponding AST operations: A_ASPLUS, A_ASMINUS, A_ASSTAR, A_ASSLASH. The AST operations **must** have the same enum value as the tokens
-because of this function in `expr.c`:
+  + 토큰을 AST 연산과 일치시킨다.
+  + 우선순위와 결합 방향을 처리한다.
+
+우리는 네 가지 연산자를 추가한다: '+=', '-=', '*=', '/='. 이 연산자들은 각각 T_ASPLUS, T_ASMINUS, T_ASSTAR, T_ASSLASH라는 토큰과 매핑된다. 이 토큰들은 A_ASPLUS, A_ASMINUS, A_ASSTAR, A_ASSLASH라는 AST 연산에 대응한다. AST 연산은 토큰과 동일한 열거형 값을 가져야 한다. `expr.c` 파일에 있는 다음 함수 때문이다:
 
 ```c
-// Convert a binary operator token into a binary AST operation.
-// We rely on a 1:1 mapping from token to AST operation
+// 이진 연산자 토큰을 이진 AST 연산으로 변환한다.
+// 토큰과 AST 연산 간 1:1 매핑에 의존한다.
 static int binastop(int tokentype) {
   if (tokentype > T_EOF && tokentype <= T_SLASH)
     return (tokentype);
@@ -153,14 +114,10 @@ static int binastop(int tokentype) {
 }
 ```
 
-We also need to configure the precedence of the new operators.
-According to [this list of C operators](https://en.cppreference.com/w/c/language/operator_precedence), these new operators have the same precedence as
-our existing assignment operator, so we can modify the `OpPrec[]` table in
-`expr.c` as follows:
+또한 새로운 연산자의 우선순위를 설정해야 한다. [C 연산자 우선순위 목록](https://en.cppreference.com/w/c/language/operator_precedence)에 따르면, 이 새로운 연산자들은 기존의 할당 연산자와 동일한 우선순위를 가진다. 따라서 `expr.c` 파일의 `OpPrec[]` 테이블을 다음과 같이 수정한다:
 
 ```c
-// Operator precedence for each token. Must
-// match up with the order of tokens in defs.h
+// 각 토큰의 연산자 우선순위. defs.h 파일의 토큰 순서와 일치해야 한다.
 static int OpPrec[] = {
   0, 10, 10,                    // T_EOF, T_ASSIGN, T_ASPLUS,
   10, 10, 10,                   // T_ASMINUS, T_ASSTAR, T_ASSLASH,
@@ -169,20 +126,18 @@ static int OpPrec[] = {
 };
 ```
 
-But that list of C operators also notes that the assignment operators are
-*right_associative*. This means, for example, that:
+그러나 C 연산자 목록은 할당 연산자들이 *오른쪽 결합*임을 명시한다. 예를 들어:
 
 ```c
-   a += b + c;          // needs to be parsed as
-   a += (b + c);        // not
+   a += b + c;          // 다음과 같이 파싱되어야 한다.
+   a += (b + c);        // 이렇게 파싱되면 안 된다.
    (a += b) + c;
 ```
 
-So we also need to update this function in `expr.c` to do this:
+따라서 `expr.c` 파일의 다음 함수도 수정해야 한다:
 
 ```c
-// Return true if a token is right-associative,
-// false otherwise.
+// 토큰이 오른쪽 결합인지 여부를 반환한다.
 static int rightassoc(int tokentype) {
   if (tokentype >= T_ASSIGN && tokentype <= T_ASSLASH)
     return (1);
@@ -190,15 +145,12 @@ static int rightassoc(int tokentype) {
 }
 ```
 
-Fortunately, these are the only changes we need to make to our scanner
-and expression parser: the Pratt parser for binary expressions is now
-primed to deal with the new operators.
+다행히도, 스캐너와 표현식 파서에 필요한 변경 사항은 이게 전부다. 이진 표현식을 위한 Pratt 파서는 이제 새로운 연산자를 처리할 준비가 되었다.
 
-## Dealing with the AST Tree
 
-Now that we can parse expressions with the four new operators, we need to
-deal with the AST that is created for each expression. One thing we need to
-do is dump the AST tree. So, in `dumpAST()` in `tree.c`, I added this code:
+## AST 트리 다루기
+
+이제 새로운 네 가지 연산자를 사용해 표현식을 파싱할 수 있게 되었으니, 각 표현식에 대해 생성된 AST를 다루어야 한다. 먼저 AST 트리를 덤프하는 작업이 필요하다. `tree.c` 파일의 `dumpAST()` 함수에 다음 코드를 추가했다:
 
 ```c
     case A_ASPLUS:
@@ -211,7 +163,7 @@ do is dump the AST tree. So, in `dumpAST()` in `tree.c`, I added this code:
       fprintf(stdout, "A_ASSLASH\n"); return;
 ```
 
-Now when I run `cwj -T input.c` with the expression `a += b + c`, I see:
+이제 `cwj -T input.c` 명령어를 실행하고 `a += b + c` 표현식을 입력하면 다음과 같은 결과를 볼 수 있다:
 
 ```
   A_IDENT rval a
@@ -221,7 +173,7 @@ Now when I run `cwj -T input.c` with the expression `a += b + c`, I see:
 A_ASPLUS
 ```
 
-which we can redraw as:
+이를 다시 그려보면 다음과 같은 구조가 된다:
 
 ```
           A_ASPLUS
@@ -232,13 +184,12 @@ which we can redraw as:
              rval b  rval c
 ```
 
-## Generating the Assembly For the Operators
 
-Well, in `gen.c` we already walk the AST tree and deal with A_ADD and A_ASSIGN.
-Is there a way to use the existing code to make implementing the new A_ASPLUS
-operator a bit easier? Yes!
+## 연산자에 대한 어셈블리 생성
 
-We can rewrite the above AST tree to look like this:
+`gen.c` 파일에서는 이미 AST 트리를 순회하며 A_ADD와 A_ASSIGN을 처리한다. 이 기존 코드를 활용해 새로운 A_ASPLUS 연산자를 구현하는 방법이 있을까? 있다!
+
+위의 AST 트리를 다음과 같이 재구성할 수 있다:
 
 ```
                 A_ASSIGN
@@ -251,15 +202,14 @@ We can rewrite the above AST tree to look like this:
              rval b   rval c
 ```
 
-Now, we don't *have* to rewrite the tree as long as we perform the tree walking
-*as if* the tree had been rewritten like this.
+이제 트리를 실제로 재구성할 필요 없이, 마치 트리가 이렇게 재구성된 것처럼 트리 순회를 수행하면 된다.
 
-So in `genAST()`, we have:
+`genAST()` 함수에서는 다음과 같이 처리한다:
 
 ```c
 int genAST(...) {
   ...
-  // Get the left and right sub-tree values. This code already here.
+  // 왼쪽과 오른쪽 서브 트리 값을 가져온다. 이 코드는 이미 존재한다.
   if (n->left)
     leftreg = genAST(n->left, NOLABEL, NOLABEL, NOLABEL, n->op);
   if (n->right)
@@ -267,13 +217,9 @@ int genAST(...) {
 }
 ```
 
-From the perspective of doing the work for the A_ASPLUS node, we have
-evaluated the left-hand child (e.g. `a`'s value) and the right-hand child
-(e.g. `b+c`) and we have the values in two registers. If this was an A_ADD
-operation, we would `cgadd(leftreg, rightreg)` at this point. Well, it is
-an A_ADD operation on these children, then followed by an assignment back into `a`.
+A_ASPLUS 노드의 작업을 수행하는 관점에서 보면, 왼쪽 자식(예: `a`의 값)과 오른쪽 자식(예: `b+c`)을 평가하고 두 레지스터에 값을 저장한 상태다. 만약 이 연산이 A_ADD라면, 이 시점에서 `cgadd(leftreg, rightreg)`를 호출할 것이다. 이 경우에는 이러한 자식들에 대해 A_ADD 연산을 수행한 후, 그 결과를 `a`에 다시 할당하는 과정이 필요하다.
 
-So, the `genAST()` code now has this:
+따라서 `genAST()` 코드는 이제 다음과 같다:
 
 ```c
   switch (n->op) {
@@ -284,9 +230,9 @@ So, the `genAST()` code now has this:
     case A_ASSLASH:
     case A_ASSIGN:
 
-      // For the '+=' and friends operators, generate suitable code
-      // and get the register with the result. Then take the left child,
-      // make it the right child so that we can fall into the assignment code.
+      // '+=' 및 유사 연산자에 대해 적절한 코드를 생성하고
+      // 결과가 저장된 레지스터를 얻는다. 그런 다음 왼쪽 자식을
+      // 오른쪽 자식으로 만들어 할당 코드로 넘어갈 수 있게 한다.
       switch (n->op) {
         case A_ASPLUS:
           leftreg= cgadd(leftreg, rightreg);
@@ -306,28 +252,23 @@ So, the `genAST()` code now has this:
           break;
       }
 
-      // And the existing code to do A_ASSIGN is here
+      // A_ASSIGN을 수행하는 기존 코드는 여기에 있다.
      ...
   }
 ```
 
-In other words, for each new operator, we perform the correct maths operation
-on the children. But before we can drop into the A_ASSIGN we have to move
-the left-child pointer over to be the right child. Why? Because the A_ASSIGN
-code expects the destination to be the right child:
+다시 말해, 각 새로운 연산자에 대해 자식 노드에 올바른 수학 연산을 수행한다. 하지만 A_ASSIGN으로 넘어가기 전에 왼쪽 자식 포인터를 오른쪽 자식으로 옮겨야 한다. 왜냐하면 A_ASSIGN 코드는 목적지가 오른쪽 자식이 될 것으로 기대하기 때문이다:
 
 ```c
       return (cgstorlocal(leftreg, n->right->sym));
 ```
 
-And that's it. We were lucky to have code which we could adapt to add in these four new
-operators. There are more assignment operators which I haven't implemented:
-'%=', '<=', '>>=', '&=', '^=' and '|='. They should also be as easy to add
-as the four we just added.
+이것으로 끝이다. 이 네 가지 새로운 연산자를 추가하기 위해 기존 코드를 활용할 수 있어 운이 좋았다. 아직 구현하지 않은 할당 연산자도 더 있다: '%=', '<=', '>>=', '&=', '^=', '|=' 등이다. 이들도 방금 추가한 네 연산자만큼 쉽게 추가할 수 있을 것이다.
 
-## Example Code
 
-The `tests/input110.c` program is our testing program:
+## 예제 코드
+
+`tests/input110.c` 프로그램은 테스트용 프로그램이다:
 
 ```c
 #include <stdio.h>
@@ -344,7 +285,7 @@ int main() {
 }
 ```
 
-and produces these results:
+이 프로그램은 다음과 같은 결과를 출력한다:
 
 ```
 18
@@ -353,12 +294,11 @@ and produces these results:
 5
 ```
 
-## Conclusion and What's Next
 
-We've added some more operators, and the hardest part really was aligning all
-the tokens, the AST operators and setting the precedence levels and
-right-associativity. After that, we could reuse some of the code generation
-code in `genAST()` to make our lives a bit easier.
+## 결론 및 다음 단계
 
-In the next part of our compiler writing journey, it looks like I'll be adding
-constant folding to the compiler. [Next step](../44_Fold_Optimisation/Readme.md)
+몇 가지 새로운 연산자를 추가했고, 가장 어려웠던 부분은 모든 토큰, AST 연산자를 정렬하고 우선순위 레벨과 오른쪽 결합성을 설정하는 작업이었다. 이후에는 `genAST()` 함수에서 코드 생성 로직을 재사용하여 작업을 조금 더 쉽게 진행할 수 있었다.
+
+컴파일러 개발 여정의 다음 단계에서는 상수 폴딩(constant folding)을 추가할 예정이다. [다음 단계](../44_Fold_Optimisation/Readme.md)
+
+

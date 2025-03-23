@@ -1,99 +1,74 @@
-# Part 31: Implementing Structs, Part 1
+# 31부: 구조체 구현, 1부
 
-In this part of our compiler writing journey, I've begun the process of
-implementing structs into the language. Even though these are not yet
-functional, I've made substantial changes to the code just to get
-to the point where we can declare structs, and global variables of struct
-type.
+이번 파트에서는 컴파일러 개발 과정 중 구조체를 언어에 구현하기 시작했다. 아직 완전히 동작하지는 않지만, 구조체를 선언하고 구조체 타입의 전역 변수를 정의할 수 있도록 코드에 상당한 변경을 가했다.
 
-## Symbol Table Changes
 
-As I mentioned in the last part, we need to change the symbol table structure
-to include a pointer to a composite type node, when the symbol is of this
-type. We also added a `next` pointer to support linked lists, and a
-`member` pointer. The `member` pointer of a function node holds the function's
-parameter list. We will use the `member` node for structs to hold the struct's
-member fields.
+## 심볼 테이블 변경 사항
 
-So, we now have:
+이전 부분에서 언급했듯이, 심볼이 복합 타입일 경우 복합 타입 노드를 가리키는 포인터를 심볼 테이블 구조에 추가해야 한다. 또한 연결 리스트를 지원하기 위해 `next` 포인터와 `member` 포인터를 추가했다. 함수 노드의 `member` 포인터는 함수의 매개변수 목록을 담는다. 구조체의 경우 `member` 노드를 사용해 구조체의 멤버 필드를 저장한다.
+
+따라서 이제 심볼 테이블은 다음과 같은 구조를 가진다:
 
 ```c
 struct symtable {
-  char *name;                   // Name of a symbol
-  int type;                     // Primitive type for the symbol
-  struct symtable *ctype;       // If needed, pointer to the composite type
+  char *name;                   // 심볼의 이름
+  int type;                     // 심볼의 기본 타입
+  struct symtable *ctype;       // 필요한 경우 복합 타입을 가리키는 포인터
   ...
-  struct symtable *next;        // Next symbol in one list
-  struct symtable *member;      // First member of a function, struct,
-};                              // union or enum
+  struct symtable *next;        // 리스트에서 다음 심볼을 가리키는 포인터
+  struct symtable *member;      // 함수, 구조체, 공용체, 열거형의 첫 번째 멤버를 가리키는 포인터
+};
 ```
 
-We also have two new lists for symbols in `data.h`:
+또한 `data.h`에 두 개의 새로운 심볼 리스트가 추가되었다:
 
 ```c
-// Symbol table lists
-struct symtable *Globhead, *Globtail;     // Global variables and functions
-struct symtable *Loclhead, *Locltail;     // Local variables
-struct symtable *Parmhead, *Parmtail;     // Local parameters
-struct symtable *Membhead, *Membtail;     // Temp list of struct/union members
-struct symtable *Structhead, *Structtail; // List of struct types
+// 심볼 테이블 리스트
+struct symtable *Globhead, *Globtail;     // 전역 변수와 함수
+struct symtable *Loclhead, *Locltail;     // 지역 변수
+struct symtable *Parmhead, *Parmtail;     // 지역 매개변수
+struct symtable *Membhead, *Membtail;     // 구조체/공용체 멤버의 임시 리스트
+struct symtable *Structhead, *Structtail; // 구조체 타입 리스트
 ```
 
-## Changes to `sym.c`
 
-Throughout `sym.c`, and elsewhere in the code, we used to only receive
-the `int type` argument to determine the type of something. This isn't
-enough now that we have composite types: the P_STRUCT integer value
-tells us that something is a struct, not which one.
+## `sym.c` 파일 변경 사항
 
-Therefore, many functions now receive an `int type` argument and also a
-`struct symtable *ctype` argument. When `type` is P_STRUCT, `ctype`
-points at the node which defines this particular struct type.
+`sym.c` 파일 및 코드 전체에서, 기존에는 `int type` 인자만 사용해 어떤 타입인지 판단했다. 하지만 이제는 복합 타입이 도입되면서 이 방식만으로는 충분하지 않다. P_STRUCT 정수 값은 어떤 것이 구조체인지는 알려주지만, 구체적으로 어떤 구조체인지는 알려주지 않는다.
 
-In `sym.c`, all the `addXX()` functions have been modified to have this
-extra argument. There is also a new `addmemb()` function and a new
-`addstruct()` function to add nodes to these two new lists. They
-function identically to the other `addXX()` functions but just on a
-different list. I will come back to these functions later.
+따라서 많은 함수가 이제 `int type` 인자와 함께 `struct symtable *ctype` 인자를 받는다. `type`이 P_STRUCT일 때, `ctype`은 해당 구조체 타입을 정의하는 노드를 가리킨다.
 
-## A New Token
+`sym.c` 파일 내 모든 `addXX()` 함수는 이 추가 인자를 받도록 수정되었다. 또한 두 개의 새로운 리스트에 노드를 추가하기 위해 `addmemb()` 함수와 `addstruct()` 함수가 새로 추가되었다. 이 함수들은 기존 `addXX()` 함수와 동일하게 작동하지만, 다른 리스트를 대상으로 한다. 이 함수들에 대해서는 나중에 다시 설명할 것이다.
 
-We have our first new token, P_STRUCT, in quite a while. It goes with
-the matching `struct` keyword. I'll omit the changes to `scan.c` as
-they are minor.
 
-## Parsing Structs in our Grammar
+## 새로운 토큰의 등장
 
-There are a bunch of places where we need to parse the `struct` keyword:
+오랜만에 새로운 토큰인 P_STRUCT가 추가되었다. 이 토큰은 `struct` 키워드와 함께 사용된다. `scan.c` 파일의 변경 사항은 사소하므로 생략한다.
 
-  + the definition of a named struct
-  + the definition of an unnamed struct followed by a variable of this type
-  + the definition of a struct within another struct or union
-  + the definition of a variable of a previously defined struct type
 
-At first, I wasn't sure where to fit in the parsing of structs. Should I
-assume that we are parsing a new struct definition, but bail out when I
-see a variable identifier, or assume a variable declaration?
+## 구조체 파싱하기
 
-In the end, I realised that, after seeing `struct <identifier>`, I had
-to assume that this was just the naming of a type, just as `int` is the
-naming of the `int` type. We had to parse the next token to determine
-otherwise.
+문법에서 `struct` 키워드를 파싱해야 하는 여러 경우가 있다:
 
-Therefore, I modified `parse_type()` in `decl.c` to parse both scalar
-types (e.g. `int`) and composite types (e.g. `struct foo`). And now
-that it can return a composite type, I had to find a way to return
-the pointer to the node that defines this composite type:
+  + 명명된 구조체 정의
+  + 이름 없는 구조체 정의와 그 타입의 변수 선언
+  + 다른 구조체나 유니온 내부의 구조체 정의
+  + 이전에 정의된 구조체 타입의 변수 선언
+
+처음에는 구조체 파싱을 어디에 넣어야 할지 고민했다. 새로운 구조체 정의를 파싱한다고 가정하고, 변수 식별자를 보면 빠져나올지, 아니면 변수 선언으로 가정할지 결정하기 어려웠다.
+
+결국 `struct <식별자>`를 본 후에는, `int`가 `int` 타입을 명명하는 것처럼 단순히 타입을 명명하는 것으로 가정해야 한다는 것을 깨달았다. 다음 토큰을 파싱해서 추가 정보를 얻어야 했다.
+
+따라서 `decl.c`의 `parse_type()` 함수를 수정해 스칼라 타입(예: `int`)과 복합 타입(예: `struct foo`)을 모두 파싱할 수 있게 했다. 이제 복합 타입을 반환할 수 있으므로, 이 복합 타입을 정의하는 노드에 대한 포인터를 반환하는 방법도 찾아야 했다:
 
 ```c
-// Parse the current token and return
-// a primitive type enum value and a pointer
-// to any composite type.
-// Also scan in the next token
+// 현재 토큰을 파싱하고
+// 기본 타입 열거값과 복합 타입에 대한 포인터를 반환한다.
+// 다음 토큰도 스캔한다.
 int parse_type(struct symtable **ctype) {
   int type;
   switch (Token.token) {
-    ...         // Existing code for T_VOID, T_CHAR etc.
+    ...         // T_VOID, T_CHAR 등 기존 코드
     case T_STRUCT:
       type = P_STRUCT;
       *ctype = struct_declaration();
@@ -101,69 +76,60 @@ int parse_type(struct symtable **ctype) {
     ...
 ```
 
-We call `struct_declaration()`to either look up an existing struct type
-or to parse the declaration of the new struct type.
+`struct_declaration()` 함수를 호출해 기존 구조체 타입을 찾거나 새로운 구조체 타입의 선언을 파싱한다.
 
-## Refactoring The Parsing of a Variable List
 
-In our old code, there was a function called `param_declaration()` that
-parsed a list of parameters separated by commas, e.g.
+## 변수 리스트 파싱 리팩토링
+
+기존 코드에는 `param_declaration()`이라는 함수가 있었다. 이 함수는 쉼표로 구분된 파라미터 리스트를 파싱했다. 예를 들어:
 
 ```c
 int fred(int x, char y, long z);
 ```
 
-such as you would find as the parameter list for a function declaration.
-Well, a struct and union declaration also has a list of variables,
-except that they are separated by semicolons and surrounded by curly
-brackets, e.g.
+이런 식으로 함수 선언의 파라미터 리스트를 처리했다. 그런데 구조체와 공용체 선언에도 변수 리스트가 있다. 다만 이 경우 세미콜론으로 구분하고 중괄호로 둘러싸여 있다. 예를 들면:
 
 ```c
 struct fred { int x; char y; long z; };
 ```
 
-It makes sense to refactor the function to parse both lists. It now
-is passed two tokens: the separating token, e.g. T_SEMI and the ending
-token, e.g. T_RBRACE. Thus, we can use it to parse both styles of lists.
+이제 이 함수를 리팩토링해 두 종류의 리스트를 모두 파싱할 수 있도록 했다. 함수는 두 개의 토큰을 받는다. 하나는 구분자 토큰(예: T_SEMI), 다른 하나는 종료 토큰(예: T_RBRACE)이다. 이렇게 하면 두 스타일의 리스트를 모두 파싱할 수 있다.
 
 ```c
-// Parse a list of variables.
-// Add them as symbols to one of the symbol table lists, and return the
-// number of variables. If funcsym is not NULL, there is an existing function
-// prototype, so compare each variable's type against this prototype.
+// 변수 리스트를 파싱한다.
+// 심볼 테이블 리스트 중 하나에 심볼로 추가하고, 변수의 개수를 반환한다.
+// funcsym이 NULL이 아니면 기존 함수 프로토타입이 있으므로 각 변수의 타입을 이 프로토타입과 비교한다.
 static int var_declaration_list(struct symtable *funcsym, int class,
                                 int separate_token, int end_token) {
     ...
-    // Get the type and identifier
+    // 타입과 식별자를 가져온다
     type = parse_type(&ctype);
     ...
-    // Add a new parameter to the right symbol table list, based on the class
+    // 클래스에 따라 적절한 심볼 테이블 리스트에 새 파라미터를 추가한다
     var_declaration(type, ctype, class);
 }
 ```
 
-When we are parsing function parameter lists, we call:
+함수 파라미터 리스트를 파싱할 때는 다음과 같이 호출한다:
 
 ```c
     var_declaration_list(oldfuncsym, C_PARAM, T_COMMA, T_RPAREN);
 ```
 
-When we are parsing struct member lists, we call:
+구조체 멤버 리스트를 파싱할 때는 다음과 같이 호출한다:
 
 ```c
     var_declaration_list(NULL, C_MEMBER, T_SEMI, T_RBRACE);
 ```
 
-Also note that the call to `var_declaration()` now is given the type of
-the variable, the composite type pointer (if it is a struct or union),
-and the variable's class. 
+또한 `var_declaration()` 호출 시 이제 변수의 타입, 복합 타입 포인터(구조체나 공용체인 경우), 그리고 변수의 클래스를 전달한다.
 
-Now we can parse the lists of members of a struct. So let's see how we
-parse the whole struct.
+이제 구조체의 멤버 리스트를 파싱할 수 있다. 이제 전체 구조체를 어떻게 파싱하는지 살펴보자.
 
-## The `struct_declaration()` Function
 
-Let's take this in stages.
+## `struct_declaration()` 함수
+
+단계별로 살펴보자.
 
 ```c
 static struct symtable *struct_declaration(void) {
@@ -171,25 +137,23 @@ static struct symtable *struct_declaration(void) {
   struct symtable *m;
   int offset;
 
-  // Skip the struct keyword
+  // struct 키워드를 건너뛴다
   scan(&Token);
 
-  // See if there is a following struct name
+  // 다음에 struct 이름이 있는지 확인
   if (Token.token == T_IDENT) {
-    // Find any matching composite type
+    // 일치하는 복합 타입을 찾는다
     ctype = findstruct(Text);
     scan(&Token);
   }
 ```
 
-At this point we have seen `struct` possibly followed by an identifier.
-If this is an existing struct type, `ctype` now points at the existing
-type node. Otherwise, `ctype` is NULL.
+이 시점에서 `struct` 키워드와 그 뒤에 오는 식별자를 확인했다.  
+이미 존재하는 struct 타입이라면 `ctype`은 기존 타입 노드를 가리킨다. 그렇지 않으면 `ctype`은 NULL이다.
 
 ```c
-  // If the next token isn't an LBRACE , this is
-  // the usage of an existing struct type.
-  // Return the pointer to the type.
+  // 다음 토큰이 '{'가 아니라면, 이는 기존 struct 타입의 사용이다.
+  // 타입에 대한 포인터를 반환한다.
   if (Token.token != T_LBRACE) {
     if (ctype == NULL)
       fatals("unknown struct type", Text);
@@ -197,124 +161,108 @@ type node. Otherwise, `ctype` is NULL.
   }
 ```
 
-We didn't see a '{', so this has to be just the naming of an existing type.
-`ctype` cannot be NULL, so we check that first and then simply return the
-pointer to this existing struct type. This is going to go back to
-`parse_type()` when we did:
+'{'를 보지 못했다면, 이는 기존 타입의 이름을 사용하는 경우다.  
+`ctype`은 NULL이 될 수 없으므로, 먼저 이를 확인한 후 기존 struct 타입에 대한 포인터를 반환한다.  
+이는 `parse_type()` 함수로 돌아가며, 다음과 같은 코드를 실행한다:
 
 ```c
       type = P_STRUCT; *ctype = struct_declaration();
 ```
 
-But, assuming we didn't return, we must have found a '{', and this signals
-the definition of a struct type. Let's go on...
+하지만 반환하지 않았다면, '{'를 발견한 것이며, 이는 struct 타입의 정의를 의미한다. 계속 진행해보자.
 
 ```c
-  // Ensure this struct type hasn't been
-  // previously defined
+  // 이 struct 타입이 이전에 정의되지 않았는지 확인
   if (ctype)
     fatals("previously defined struct", Text);
 
-  // Build the struct node and skip the left brace
+  // struct 노드를 생성하고 '{'를 건너뛴다
   ctype = addstruct(Text, P_STRUCT, NULL, 0, 0);
   scan(&Token);
 ```
 
-We can't declare a struct with the same name twice, so prevent this.
-Then build the beginnings of the new struct type as a node in the
-symbol table. All we have so far is its name and that it is of P_STRUCT type.
+동일한 이름의 struct를 두 번 선언할 수 없으므로 이를 방지한다.  
+그런 다음 심볼 테이블에 새로운 struct 타입의 노드를 생성한다.  
+지금까지는 이름과 P_STRUCT 타입만 가지고 있다.
 
 ```c
-  // Scan in the list of members and attach
-  // to the struct type's node
+  // 멤버 목록을 스캔하고 struct 타입의 노드에 연결
   var_declaration_list(NULL, C_MEMBER, T_SEMI, T_RBRACE);
   rbrace();
 ```
 
-This parses the list of members. For each one, a new symbol node is appended
-to the list that `Membhead` and `Membtail` point to. This list is only
-temporary, because the next lines of code move the member list into the 
-new struct type node:
+이 코드는 멤버 목록을 파싱한다. 각 멤버에 대해 새로운 심볼 노드가 `Membhead`와 `Membtail`이 가리키는 리스트에 추가된다.  
+이 리스트는 임시적이며, 다음 코드에서 멤버 리스트를 새로운 struct 타입 노드로 이동시킨다:
 
 ```c
   ctype->member = Membhead;
   Membhead = Membtail = NULL;
 ```
 
-We now have a struct type node with a name, and the list of members in the
-struct. What's left to do? Well, we now need to determine:
+이제 이름과 struct 내 멤버 목록을 가진 struct 타입 노드가 생겼다.  
+남은 작업은 다음과 같다:
 
-  + the overall size of the struct, and
-  + the offset of each member from the base of the struct
+  + struct의 전체 크기를 결정하고,
+  + struct의 시작점부터 각 멤버의 오프셋을 결정한다.
 
-Some of this is very hardware-specific due to the alignment of scalar
-values in memory. So I'll give the code as it stands now, and then
-follow the function call structure later.
+이 중 일부는 메모리에서 스칼라 값의 정렬과 관련해 하드웨어에 의존적이다.  
+현재 코드를 보여주고, 나중에 함수 호출 구조를 설명하겠다.
 
 ```c
-  // Set the offset of the initial member
-  // and find the first free byte after it
+  // 첫 번째 멤버의 오프셋을 설정하고 그 뒤의 첫 번째 빈 바이트를 찾는다
   m = ctype->member;
   m->posn = 0;
   offset = typesize(m->type, m->ctype);
 ```
 
-We now have a new function, `typesize()` to get the size of any type:
-scalar, pointer or composite. The first member's position is set to zero,
-and we use its size to determine the first possible byte where the next
-member could be stored. But now we need to worry about alignment.
+이제 `typesize()`라는 새로운 함수가 생겼다. 이 함수는 스칼라, 포인터, 복합 타입의 크기를 반환한다.  
+첫 번째 멤버의 위치는 0으로 설정되고, 그 크기를 사용해 다음 멤버가 저장될 수 있는 첫 번째 바이트를 결정한다.  
+하지만 이제 정렬을 고려해야 한다.
 
-As an example, on a 32-bit architecture where 4-byte scalar values have
-to be aligned on a 4-byte boundary:
+예를 들어, 4바이트 스칼라 값이 4바이트 경계에 정렬되어야 하는 32비트 아키텍처에서는:
 
 ```c
 struct {
-  char x;               // At offset 0
-  int y;                // At offset 4, not 1
+  char x;               // 오프셋 0
+  int y;                // 오프셋 4, 1이 아님
 };
 ```
 
-So here is the code to calculate the offset of each successive member:
+따라서 각 연속 멤버의 오프셋을 계산하는 코드는 다음과 같다:
 
 ```c
-  // Set the position of each successive member in the struct
+  // struct 내 각 연속 멤버의 위치를 설정
   for (m = m->next; m != NULL; m = m->next) {
-    // Set the offset for this member
+    // 이 멤버의 오프셋을 설정
     m->posn = genalign(m->type, offset, 1);
 
-    // Get the offset of the next free byte after this member
+    // 이 멤버 다음의 빈 바이트 오프셋을 가져옴
     offset += typesize(m->type, m->ctype);
   }
 ```
 
-We have a new function, `genalign()` that takes a current offset and
-the type that we need to align, and returns the first offset that
-suits the alignment of this type. For example, `genalign(P_INT, 3, 1)`
-might return 4 if P_INTs have to be 4-aligned. I'll discuss the final 1
-argument soon.
+`genalign()`이라는 새로운 함수가 있다. 이 함수는 현재 오프셋과 정렬이 필요한 타입을 받아, 이 타입의 정렬에 맞는 첫 번째 오프셋을 반환한다.  
+예를 들어, `genalign(P_INT, 3, 1)`은 P_INT가 4바이트 정렬이 필요하다면 4를 반환할 수 있다. 마지막 인자 1에 대해서는 곧 설명하겠다.
 
-So, `genalign()` works out the correct alignment for this member, and
-then we add on this member's size to get the next free (unaligned)
-position which is available for the next member.
+따라서 `genalign()`은 이 멤버의 올바른 정렬을 계산하고, 그 다음 멤버를 위해 이 멤버의 크기를 더해 다음 빈(정렬되지 않은) 위치를 결정한다.
 
-Once we have done the above for all the members in the list, the
-`offset` is the size in bytes of the overall struct. So:
+위 과정을 모든 멤버에 대해 수행하면 `offset`은 struct의 전체 크기(바이트 단위)가 된다. 따라서:
 
 ```c
-  // Set the overall size of the struct
+  // struct의 전체 크기를 설정
   ctype->size = offset;
   return (ctype);
 }
 ```
 
-## The `typesize()` Function
 
-It's time to follow all the new functions to see what they do and how they
-do it. We'll start with `typesize()` in `types.c`:
+## `typesize()` 함수
+
+새로운 함수들이 어떤 역할을 하고 어떻게 동작하는지 하나씩 살펴보자. 먼저 `types.c` 파일에 있는 `typesize()` 함수부터 시작한다.
 
 ```c
-// Given a type and a composite type pointer, return
-// the size of this type in bytes
+// 주어진 타입과 복합 타입 포인터를 기반으로
+// 해당 타입의 크기를 바이트 단위로 반환한다
 int typesize(int type, struct symtable *ctype) {
   if (type == P_STRUCT)
     return(ctype->size);
@@ -322,22 +270,16 @@ int typesize(int type, struct symtable *ctype) {
 }
 ```
 
-If the type is a struct, return the size from the struct's type node.
-Otherwise it's a scalar or pointer type, so ask `genprimsize()`
-(which calls the hardware-specific `cgprimsize()`) to get the type's size.
-Nice and easy.
+타입이 구조체(struct)인 경우, 구조체의 타입 노드에서 크기를 반환한다. 그렇지 않으면 스칼라 타입이나 포인터 타입이므로 `genprimsize()` 함수를 호출해 타입의 크기를 구한다. `genprimsize()`는 하드웨어에 특화된 `cgprimsize()`를 호출한다. 간단하고 명확하다.
 
-## The `genalign()` and `cgalign()` Functions
 
-Now we get into some not so nice code. Given a type and an existing
-unaligned offset, we need to know which is the next aligned position
-to place a value of the given type.
+## `genalign()`과 `cgalign()` 함수
 
-I also was worried that we might need to do this on the stack, which
-grows downwards not upwards. So there is a third argument to the function:
-the *direction* in which we need to find the next aligned position.
+이제 다소 복잡한 코드를 살펴볼 차례다. 특정 타입과 이미 존재하는 정렬되지 않은 오프셋이 주어졌을 때, 해당 타입의 값을 배치하기 위해 다음으로 정렬된 위치를 알아내야 한다.
 
-Also, the knowledge of alignment is hardware specific, so:
+또한 스택에서 이러한 작업을 수행해야 할 가능성도 고려했다. 스택은 위쪽이 아니라 아래쪽으로 증가하기 때문에 함수에 세 번째 인자를 추가했다. 이 인자는 다음 정렬된 위치를 찾아야 할 *방향*을 나타낸다.
+
+정렬에 대한 지식은 하드웨어에 따라 다르기 때문에, 다음과 같이 코드를 작성했다:
 
 ```c
 int genalign(int type, int offset, int direction) {
@@ -345,21 +287,18 @@ int genalign(int type, int offset, int direction) {
 }
 ```
 
-and we turn our attention to `cgalign()` in `cg.c`:
+그리고 `cg.c` 파일에 있는 `cgalign()` 함수를 살펴보자:
 
 ```c
-// Given a scalar type, an existing memory offset
-// (which hasn't been allocated to anything yet)
-// and a direction (1 is up, -1 is down), calculate
-// and return a suitably aligned memory offset
-// for this scalar type. This could be the original
-// offset, or it could be above/below the original
+// 스칼라 타입, 아직 할당되지 않은 메모리 오프셋,
+// 그리고 방향(1은 위, -1은 아래)이 주어졌을 때,
+// 이 스칼라 타입에 적합하게 정렬된 메모리 오프셋을 계산하고 반환한다.
+// 이 오프셋은 원래 오프셋일 수도 있고, 원래 오프셋보다 위/아래일 수도 있다.
 int cgalign(int type, int offset, int direction) {
   int alignment;
 
-  // We don't need to do this on x86-64, but let's
-  // align chars on any offset and align ints/pointers
-  // on a 4-byte alignment
+  // x86-64에서는 이 작업이 필요하지 않지만,
+  // char는 어떤 오프셋에도 정렬하고, int/포인터는 4바이트 정렬을 적용한다.
   switch(type) {
     case P_CHAR: return (offset);
     case P_INT:
@@ -367,31 +306,23 @@ int cgalign(int type, int offset, int direction) {
     default:     fatald("Bad type in calc_aligned_offset:", type);
   }
 
-  // Here we have an int or a long. Align it on a 4-byte offset
-  // I put the generic code here so it can be reused elsewhere.
+  // 여기서는 int나 long을 다룬다. 4바이트 오프셋으로 정렬한다.
+  // 이 코드를 일반화해 다른 곳에서도 재사용할 수 있도록 했다.
   alignment= 4;
   offset = (offset + direction * (alignment-1)) & ~(alignment-1);
   return (offset);
 }
 ```
 
-Firstly, yes I know that we don't have to worry about alignment in the
-x86-64 architecture. But I thought we should go through the exercise of
-dealing with alignment, so there is an example of it being done which can
-be borrowed for other backends that may be written.
+먼저, x86-64 아키텍처에서는 정렬을 걱정할 필요가 없다는 점을 알고 있다. 하지만 정렬을 처리하는 과정을 직접 다뤄보는 것이 좋을 것 같아서, 이 예제를 통해 다른 백엔드에서도 활용할 수 있도록 했다.
 
-The code returns the given offset for `char` types, as they can be
-stored at any alignment. But we enforce a 4-byte alignment on `int`s
-and `long`s.
+이 코드는 `char` 타입에 대해서는 주어진 오프셋을 그대로 반환한다. `char`는 어떤 정렬에도 저장될 수 있기 때문이다. 하지만 `int`와 `long`에 대해서는 4바이트 정렬을 강제한다.
 
-Let's break down the big offset expression. The first `alignment-1`
-turns `offset` 0 into 3, 1 into 4, 2 into 5 etc. Then, at the end
-we AND this with the inverse of 3, i.e. ...111111100 to discard the
-last two bits and lower the value back down to the correct alignment.
+이제 복잡한 오프셋 표현식을 자세히 살펴보자. 첫 번째 `alignment-1`은 오프셋 0을 3으로, 1을 4로, 2를 5로 바꾸는 식이다. 그리고 마지막에 이를 3의 역수, 즉 `...111111100`과 AND 연산하여 마지막 두 비트를 버리고 값을 다시 올바른 정렬 위치로 낮춘다.
 
-Thus:
+따라서 다음과 같은 결과가 나온다:
 
-| Offset | Add Value | New Offset |
+| 오프셋 | 추가 값 | 새로운 오프셋 |
 |:------:|:---------:|:----------:|
 |   0    |    3      |    0       |
 |   1    |    4      |    4       |
@@ -402,14 +333,11 @@ Thus:
 |   6    |    9      |    8       |
 |   7    |   10      |    8       |
 
-An offset of 0 stays at zero, but values 1 to 3 are pushed up to 4.
-4 stays aligned at 4, but 5 to 7 get pushed up to 8.
+오프셋 0은 그대로 유지되지만, 1부터 3까지의 값은 4로 올라간다. 4는 정렬된 상태를 유지하고, 5부터 7까지의 값은 8로 올라간다.
 
-Now the magic. A `direction` of 1 does everything that we have seen so far.
-A `direction` of -1 sends the offset in the opposite direction to ensure
-that the value's "high end" won't hit what's above it:
+이제 마법 같은 부분이다. `direction`이 1이면 지금까지 본 모든 동작이 수행된다. `direction`이 -1이면 오프셋을 반대 방향으로 보내서 값의 "상단"이 위에 있는 것과 충돌하지 않도록 한다:
 
-| Offset | Add Value | New Offset |
+| 오프셋 | 추가 값 | 새로운 오프셋 |
 |:------:|:---------:|:----------:|
 |   0    |   -3      |   -4       |
 |  -1    |   -4      |   -4       |
@@ -420,28 +348,28 @@ that the value's "high end" won't hit what's above it:
 |  -6    |   -9      |   -12      |
 |  -7    |  -10      |   -12      |
 
-## Creating a Global Struct Variable
 
-So now we can parse a struct type, and declare a global variable to this type.
-Now let's modify the code to allocate the memory space for a global variable:
+## 전역 구조체 변수 생성하기
+
+이제 구조체 타입을 파싱할 수 있고, 이 타입에 대한 전역 변수를 선언할 수 있다. 이제 전역 변수에 메모리 공간을 할당하도록 코드를 수정해 보자:
 
 ```c
-// Generate a global symbol but not functions
+// 전역 심볼을 생성하지만 함수는 생성하지 않음
 void cgglobsym(struct symtable *node) {
   int size;
 
   if (node == NULL) return;
   if (node->stype == S_FUNCTION) return;
 
-  // Get the size of the type
+  // 타입의 크기를 가져옴
   size = typesize(node->type, node->ctype);
 
-  // Generate the global identity and the label
+  // 전역 식별자와 레이블 생성
   cgdataseg();
   fprintf(Outfile, "\t.globl\t%s\n", node->name);
   fprintf(Outfile, "%s:", node->name);
 
-  // Generate the space for this type
+  // 이 타입에 대한 공간 생성
   switch (size) {
     case 1: fprintf(Outfile, "\t.byte\t0\n"); break;
     case 4: fprintf(Outfile, "\t.long\t0\n"); break;
@@ -451,16 +379,14 @@ void cgglobsym(struct symtable *node) {
         fprintf(Outfile, "\t.byte\t0\n");
   }
 }
-  
 ```
 
-## Trying The Changes Out
 
-We don't have any new functionality apart from parsing structs,
-storing new nodes in the symbol table and generating storage
-for global struct variables.
+## 변경 사항 테스트
 
-I have this test program, `z.c`:
+구조체를 파싱하고, 심볼 테이블에 새로운 노드를 저장하며, 전역 구조체 변수를 위한 저장 공간을 생성하는 기능 외에는 새로운 기능이 없다.
+
+다음은 테스트 프로그램 `z.c`이다:
 
 ```c
 struct fred { int x; char y; long z; };
@@ -469,14 +395,9 @@ struct { int x; };
 struct fred var2;
 ```
 
-which should create two global variables `var1` and `var2`. We create
-two named struct types, `fred` and `foo`, and one unnamed struct.
-The third struct should cause an error (or at least a warning) because
-there is no variable associated with the struct, so the struct itself
-is useless.
+이 코드는 두 개의 전역 변수 `var1`과 `var2`를 생성해야 한다. 두 개의 이름이 있는 구조체 타입 `fred`과 `foo`, 그리고 하나의 이름 없는 구조체를 생성한다. 세 번째 구조체는 구조체와 연결된 변수가 없기 때문에 오류(또는 적어도 경고)를 발생시켜야 한다. 이 경우 구조체 자체가 쓸모없다.
 
-I added some test code to print out the member offsets and struct sizes
-for the above structs, and this is the result:
+위 구조체들의 멤버 오프셋과 구조체 크기를 출력하기 위해 테스트 코드를 추가했고, 결과는 다음과 같다:
 
 ```
 Offset for fred.x is 0
@@ -492,31 +413,25 @@ Offset for struct.x is 0
 Size of struct struct is 4
 ```
 
-Finally, when I do `./cwj -S z.c`, I get this assembly output:
+마지막으로, `./cwj -S z.c`를 실행하면 다음과 같은 어셈블리 출력을 얻는다:
 
 ```
         .globl  var1
-var1:   .byte   0       // Nine bytes
+var1:   .byte   0       // 9바이트
         ...
 
-        .globl  var2    // Thirteen bytes
+        .globl  var2    // 13바이트
 var2:   .byte   0
         ...
 ```
 
-## Conclusion and What's Next
 
-In this part I've had to change a lot of the existing code from dealing
-with just an `int type` to dealing with an `int type; struct symtable *ctype`
-pair. I'm sure I'll have to do this in more places.
+## 결론 및 다음 단계
 
-We've added the parsing of struct definitions and also declarations of
-struct variables, and we can generate the space for global struct variables.
-At the moment, we can't use the struct variables that we have created.
-But it's a good start. I also haven't even tried to deal with local
-struct variables, because that involves the stack and I'm sure that
-will be complicated.
+이번 파트에서는 기존 코드를 상당 부분 수정해야 했다. 단순히 `int 타입`만 다루던 코드를 `int 타입; struct symtable *ctype` 쌍을 다루는 방식으로 변경했다. 앞으로도 이런 작업을 더 많이 해야 할 것이다.
 
-In the next part of our compiler writing journey, I will try to 
-add the code to parse the '.' token so that we can access members
-in a struct variable. [Next step](../32_Struct_Access_pt1/Readme.md)
+우리는 구조체 정의를 파싱하는 기능과 구조체 변수를 선언하는 기능을 추가했고, 전역 구조체 변수를 위한 공간을 생성할 수 있게 됐다. 현재는 생성한 구조체 변수를 사용할 수는 없지만, 좋은 시작이다. 또한 지역 구조체 변수는 아직 다루지 않았다. 이는 스택과 관련이 있어서 분명 복잡할 것이다.
+
+컴파일러 개발의 다음 단계에서는 '.' 토큰을 파싱하는 코드를 추가해 구조체 변수의 멤버에 접근할 수 있도록 할 계획이다. [다음 단계](../32_Struct_Access_pt1/Readme.md)
+
+

@@ -1,85 +1,64 @@
-# Part 62: Code Cleanup
+# 파트 62: 코드 정리
 
-This version of the compiler is essentially the same as in part 60.
-I am using this part to fix up comments, fix up bugs, do a bit of
-code cleanup, rename some functions and variables etc.
+이번 버전의 컴파일러는 파트 60과 거의 동일하다. 이번 파트에서는 주석을 수정하고, 버그를 고치며, 코드를 정리하고, 일부 함수와 변수의 이름을 변경하는 등의 작업을 진행한다.
 
-## Some Small Bugfixes
 
-For the changes to the compiler that I'm planning, I need to be able
-to put structs into structs. Therefore, I should be able to do:
+## 몇 가지 작은 버그 수정
+
+컴파일러에 계획한 변경 사항을 적용하려면 구조체 안에 구조체를 넣을 수 있어야 한다. 따라서 다음과 같은 코드를 작성할 수 있어야 한다:
 
 ```c
    printf("%d\n", thing.member1.age_in_years);
 ```
 
-where `thing` is a struct, but it has a `member1` which is of type struct.
-To do this, we need to find the offset of `member1` from the base of
-`thing`, then find the offset of `age_in_years` from the previous offset.
+여기서 `thing`은 구조체이며, `member1`은 구조체 타입의 멤버이다. 이를 구현하려면 `thing`의 베이스 주소에서 `member1`의 오프셋을 찾고, 이전 오프셋에서 `age_in_years`의 오프셋을 찾아야 한다.
 
-However, the code to do this expects the things on the left-hand side of
-the '.' token to be a variable which has a symbol table entry and thus
-a fixed location in memory. We need to fix this to deal with the situation
-where the left-hand side of the '.' token is an offset that has already
-been calculated.
+하지만 현재 코드는 '.' 토큰의 왼쪽에 있는 요소가 심볼 테이블에 등록된 변수여야 한다고 가정한다. 즉, 메모리에 고정된 위치를 가져야 한다. '.' 토큰의 왼쪽에 이미 계산된 오프셋이 있는 경우에도 처리할 수 있도록 코드를 수정해야 한다.
 
-Fortunately, this was quite easy to do. We don't have to change the
-parser code, but let's look at what is  already there. In `member_access()`
-in `expr.c`:
+다행히 이 작업은 상대적으로 쉽게 수행할 수 있다. 파서 코드를 변경할 필요는 없지만, 이미 있는 코드를 살펴보자. `expr.c` 파일의 `member_access()` 함수를 보면:
 
 ```c
-  // Check that the left AST tree is a struct or union.
-  // If so, change it from an A_IDENT to an A_ADDR so that
-  // we get the base address, not the value at this address.
+  // 왼쪽 AST 트리가 구조체나 공용체인지 확인한다.
+  // 그렇다면 A_IDENT에서 A_ADDR로 변경하여
+  // 주소의 값이 아니라 베이스 주소를 가져오도록 한다.
   if (!withpointer) {
     if (left->type == P_STRUCT || left->type == P_UNION)
       left->op = A_ADDR;
 ```
 
-We mark the left-hand AST tree as A_ADDR (instead of A_IDENT) to say
-that we need the base address of it, not the value at this address.
+왼쪽 AST 트리를 A_ADDR로 표시하여(기존의 A_IDENT 대신) 주소의 값이 아니라 베이스 주소를 가져오도록 한다.
 
-Now we need to fix the code generation. When we get an A_ADDR AST node,
-we either have a variable whose address we need (e.g. `thing` in
-`thing.member1`), or our child tree has the pre-calculated offset
-(e.g. the offset of `member1` in `member1.age_in_years). So in `genAST()`
-in `gen.c`, we do:
+이제 코드 생성 부분을 수정해야 한다. A_ADDR AST 노드를 처리할 때, 주소가 필요한 변수(예: `thing.member1`에서 `thing`)가 있거나, 자식 트리가 미리 계산된 오프셋(예: `member1.age_in_years`에서 `member1`의 오프셋)을 가지고 있는 경우를 처리한다. `gen.c` 파일의 `genAST()` 함수에서 다음과 같이 수정한다:
 
 ```c
   case A_ADDR:
-    // If we have a symbol, get its address. Otherwise,
-    // the left register already has the address because
-    // it's a member access
+    // 심볼이 있으면 해당 주소를 가져온다. 그렇지 않으면
+    // 왼쪽 레지스터가 이미 주소를 가지고 있다.
+    // 이는 멤버 접근인 경우이다.
     if (n->sym != NULL)
       return (cgaddress(n->sym));
     else
       return (leftreg);
 ```
 
-That should be all, but we have one more fix. The code to work out the
-alignment of types doesn't deal with structs inside structs, only
-scalar types inside structs. So, I've modified `cgalign()` in `cg.c`
-as follows:
+이렇게 하면 대부분의 문제가 해결되지만, 한 가지 더 수정해야 할 부분이 있다. 타입의 정렬을 처리하는 코드는 구조체 안에 있는 스칼라 타입만 다루고, 구조체 안에 있는 구조체는 처리하지 않는다. 따라서 `cg.c` 파일의 `cgalign()` 함수를 다음과 같이 수정한다:
 
 ```c
-// Given a scalar type, an existing memory offset
-// (which hasn't been allocated to anything yet)
-// and a direction (1 is up, -1 is down), calculate
-// and return a suitably aligned memory offset
-// for this scalar type. This could be the original
-// offset, or it could be above/below the original
+// 스칼라 타입, 기존 메모리 오프셋(아직 할당되지 않은),
+// 그리고 방향(1은 위, -1은 아래)이 주어졌을 때,
+// 이 스칼라 타입에 적합하게 정렬된 메모리 오프셋을 계산하고 반환한다.
+// 이는 원래 오프셋일 수도 있고, 원래 오프셋 위/아래일 수도 있다.
 int cgalign(int type, int offset, int direction) {
   int alignment;
 
-  // We don't need to do this on x86-64, but let's
-  // align chars on any offset and align ints/pointers
-  // on a 4-byte alignment
+  // x86-64에서는 이 작업이 필요 없지만,
+  // char는 어떤 오프셋에도 정렬하고, int/포인터는 4바이트 정렬한다.
   switch (type) {
   case P_CHAR:
     break;
   default:
-    // Align whatever we have now on a 4-byte alignment.
-    // I put the generic code here so it can be reused elsewhere.
+    // 현재 오프셋을 4바이트 정렬한다.
+    // 일반적인 코드를 여기에 넣어 다른 곳에서도 재사용할 수 있도록 한다.
     alignment = 4;
     offset = (offset + direction * (alignment - 1)) & ~(alignment - 1);
   }
@@ -87,21 +66,16 @@ int cgalign(int type, int offset, int direction) {
 }
 ```
 
-Everything but P_CHAR gets aligned on a 4-byte alignment,
-including structs and unions.
+P_CHAR를 제외한 모든 타입은 구조체와 공용체를 포함해 4바이트 정렬을 따른다.
 
-## Known but Unfixed Bugs
 
-Now that this Github repository is up and has gained some attention,
-several people have reported bugs and misfeatures.
-The list of open and closed issues is here:
-![https://github.com/DoctorWkt/acwj/issues](https://github.com/DoctorWkt/acwj/issues). If you spot any bugs or misfeatures, feel free to report them.
-However, I can't promise I'll get time to fix them all!
+## 알려진 버그와 미해결 문제들
 
-## What's Next
+이 GitHub 저장소가 공개되고 어느 정도 주목을 받으면서 여러 사람들이 버그와 기능상의 문제점들을 보고했다. 현재 열려 있는 이슈와 해결된 이슈 목록은 다음 링크에서 확인할 수 있다: ![https://github.com/DoctorWkt/acwj/issues](https://github.com/DoctorWkt/acwj/issues). 만약 버그나 문제점을 발견한다면, 언제든지 보고해 주길 바란다. 다만, 모든 문제를 해결할 시간이 있을지는 장담할 수 없다!
 
-I've been reading up on register allocation, and I think I'll add
-a linear scan register allocation mechanism to the compiler. To do
-this, though, I need to add an intermediate representation stage.
-This will be the goal for the next few stages, but so far I haven't
-done anything concrete. [Next step](../63_QBE/Readme.md)
+
+## 다음 단계
+
+레지스터 할당에 대해 공부하면서, 컴파일러에 선형 스캔(linear scan) 레지스터 할당 메커니즘을 추가하려고 생각 중이다. 이를 위해서는 중간 표현(intermediate representation) 단계를 추가해야 한다. 이 작업이 앞으로 몇 단계의 목표가 될 것이지만, 아직 구체적으로 진행한 것은 없다. [다음 단계](../63_QBE/Readme.md)
+
+

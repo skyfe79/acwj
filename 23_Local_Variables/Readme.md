@@ -1,54 +1,42 @@
-# Part 23: Local Variables
+# 23장: 지역 변수 구현
 
-I've just implemented local variables on the stack following
-the design ideas I described in the previous part of our
-compiler writing journey, and it all went fine. Below, I
-will outline the actual code changes.
+지금까지 설명한 컴파일러 설계 개념에 따라 스택에 지역 변수를 구현했다. 모든 과정이 순조롭게 진행되었으며, 실제 코드 변경 사항을 아래에 정리한다.
 
-## Symbol Table Changes
 
-We start with the changes to the symbol table as these
-are central to having two variable scopes: global and local.
-The structure of the symbol table entries is now (in `defs.h`):
+## 심볼 테이블 변경 사항
+
+심볼 테이블의 변경 사항부터 살펴본다. 이는 전역(global)과 지역(local) 두 가지 변수 스코프를 구현하는 데 핵심적인 부분이다. 심볼 테이블 엔트리의 구조는 이제 다음과 같다(`defs.h` 참조):
 
 ```c
-// Storage classes
+// 스토리지 클래스
 enum {
-        C_GLOBAL = 1,           // Globally visible symbol
-        C_LOCAL                 // Locally visible symbol
+        C_GLOBAL = 1,           // 전역적으로 보이는 심볼
+        C_LOCAL                 // 지역적으로 보이는 심볼
 };
 
-// Symbol table structure
+// 심볼 테이블 구조체
 struct symtable {
-  char *name;                   // Name of a symbol
-  int type;                     // Primitive type for the symbol
-  int stype;                    // Structural type for the symbol
-  int class;                    // Storage class for the symbol
-  int endlabel;                 // For functions, the end label
-  int size;                     // Number of elements in the symbol
-  int posn;                     // For locals,the negative offset 
-                                // from the stack base pointer
+  char *name;                   // 심볼의 이름
+  int type;                     // 심볼의 기본 타입
+  int stype;                    // 심볼의 구조적 타입
+  int class;                    // 심볼의 스토리지 클래스
+  int endlabel;                 // 함수의 경우, 종료 레이블
+  int size;                     // 심볼의 요소 수
+  int posn;                     // 지역 변수의 경우, 스택 베이스 포인터로부터의 음수 오프셋
 };
 ```
 
-with the `class` and `posn` fields added. As described in the last part,
-the `posn` is negative and holds an offset from the stack base pointer,
-i.e. the local variable is stored on the stack.
-In this part, I've only implemented local variables, not parameters. Also
-note that we now have symbols marked C_GLOBAL or C_LOCAL.
+여기서 `class`와 `posn` 필드가 추가되었다. 이전 부분에서 설명했듯이, `posn`은 음수 값을 가지며 스택 베이스 포인터로부터의 오프셋을 나타낸다. 즉, 지역 변수는 스택에 저장된다. 이번 파트에서는 매개변수는 구현하지 않고, 지역 변수만 다룬다. 또한 심볼이 이제 C_GLOBAL 또는 C_LOCAL로 표시된다는 점에 유의한다.
 
-The symbol table's name has also changed, along with the indexed into it
-(in `data.h`):
+심볼 테이블의 이름과 인덱스도 변경되었다(`data.h` 참조):
 
 ```c
-extern_ struct symtable Symtable[NSYMBOLS];     // Global symbol table
-extern_ int Globs;                              // Position of next free global symbol slot
-extern_ int Locls;                              // Position of next free local symbol slot
+extern_ struct symtable Symtable[NSYMBOLS];     // 전역 심볼 테이블
+extern_ int Globs;                              // 다음 사용 가능한 전역 심볼 슬롯 위치
+extern_ int Locls;                              // 다음 사용 가능한 지역 심볼 슬롯 위치
 ```
 
-Visually, the global symbols are stored in the left-hand side of the symbol table
-with `Globs` pointing at the next free global symbol slot and `Locls`
-pointing at the next free local symbol slot.
+시각적으로, 전역 심볼은 심볼 테이블의 왼쪽에 저장되며, `Globs`는 다음 사용 가능한 전역 심볼 슬롯을 가리키고, `Locls`는 다음 사용 가능한 지역 심볼 슬롯을 가리킨다.
 
 ```
 0xxxx......................................xxxxxxxxxxxxNSYMBOLS-1
@@ -57,13 +45,10 @@ pointing at the next free local symbol slot.
    Globs                                Locls
 ```
 
-In `sym.c` as well as the existing `findglob()` and `newglob()` functions
-to find or allocate a global symbol, we now have `findlocl()` and `newlocl()`.
-They have code to detect a collision between `Globs` and `Locls`:
+`sym.c`에는 기존의 `findglob()`과 `newglob()` 함수 외에, 이제 `findlocl()`과 `newlocl()` 함수가 추가되었다. 이 함수들은 `Globs`와 `Locls` 사이의 충돌을 감지하는 코드를 포함한다:
 
 ```c
-// Get the position of a new global symbol slot, or die
-// if we've run out of positions.
+// 새로운 전역 심볼 슬롯의 위치를 가져오거나, 위치가 부족하면 오류를 발생시킴
 static int newglob(void) {
   int p;
 
@@ -72,8 +57,7 @@ static int newglob(void) {
   return (p);
 }
 
-// Get the position of a new local symbol slot, or die
-// if we've run out of positions.
+// 새로운 지역 심볼 슬롯의 위치를 가져오거나, 위치가 부족하면 오류를 발생시킴
 static int newlocl(void) {
   int p;
 
@@ -83,19 +67,13 @@ static int newlocl(void) {
 }
 ```
 
-There is now a generic function `updatesym()` to set all the fields in
-a symbol table entry. I won't give the code because it simply sets
-each field one at a time.
+이제 심볼 테이블 엔트리의 모든 필드를 설정하는 일반 함수 `updatesym()`이 있다. 이 함수는 각 필드를 하나씩 설정하는 간단한 코드이므로 여기서는 생략한다.
 
-The `updatesym()` function is called by `addglobl()` and `addlocl()`.
-These first try to find an existing symbol, allocate a new one if not found,
-and call `updatesym()` to set the values for this symbol. Finally, there is
-a new function, `findsymbol()`, that searches for a symbol in both local
-and global sections of the symbol table:
+`updatesym()` 함수는 `addglobl()`과 `addlocl()`에서 호출된다. 이 함수들은 먼저 기존 심볼을 찾고, 찾지 못하면 새로운 심볼을 할당한 후, `updatesym()`을 호출해 해당 심볼의 값을 설정한다. 마지막으로, 새로운 함수 `findsymbol()`이 추가되었다. 이 함수는 심볼 테이블의 지역 및 전역 섹션에서 심볼을 검색한다:
 
 ```c
-// Determine if the symbol s is in the symbol table.
-// Return its slot position or -1 if not found.
+// 심볼 s가 심볼 테이블에 있는지 확인한다.
+// 슬롯 위치를 반환하거나, 찾지 못하면 -1을 반환한다.
 int findsymbol(char *s) {
   int slot;
 
@@ -106,26 +84,24 @@ int findsymbol(char *s) {
 }
 ```
 
-Throughout the rest of the code, the old calls to `findglob()` have been
-replaced with calls the `findsymbol()`.
+코드의 나머지 부분에서는 기존의 `findglob()` 호출이 `findsymbol()` 호출로 대체되었다.
 
-## Changes to Declaration Parsing
 
-We need to be able to parse both global and local variable declarations.
-The code to parse them is (for now) the same, so I added a flag to the
-function:
+## 선언문 파싱 변경 사항
+
+전역 변수와 지역 변수 선언을 모두 파싱할 수 있어야 한다. 현재는 두 경우를 파싱하는 코드가 동일하므로, 함수에 플래그를 추가했다:
 
 ```c
 void var_declaration(int type, int islocal) {
     ...
-      // Add this as a known array
+      // 알려진 배열로 추가
       if (islocal) {
         addlocl(Text, pointer_to(type), S_ARRAY, 0, Token.intvalue);
       } else {
         addglob(Text, pointer_to(type), S_ARRAY, 0, Token.intvalue);
       }
     ...
-    // Add this as a known scalar
+    // 알려진 스칼라로 추가
     if (islocal) {
       addlocl(Text, type, S_VARIABLE, 0, 1);
     } else {
@@ -135,21 +111,18 @@ void var_declaration(int type, int islocal) {
 }
 ```
 
-There are two calls to `var_declaration()` in our compiler at present.
-This one in `global_declarations()` in `decl.c` parses global variable
-declarations:
+현재 컴파일러에는 `var_declaration()`을 호출하는 두 곳이 있다. `decl.c` 파일의 `global_declarations()` 함수에서는 전역 변수 선언을 파싱한다:
 
 ```c
 void global_declarations(void) {
       ...
-      // Parse the global variable declaration
+      // 전역 변수 선언 파싱
       var_declaration(type, 0);
       ...
 }
 ```
 
-This one in `single_statement()` in `stmt.c` parses local variable
-declarations:
+`stmt.c` 파일의 `single_statement()` 함수에서는 지역 변수 선언을 파싱한다:
 
 ```c
 static struct ASTnode *single_statement(void) {
@@ -160,9 +133,9 @@ static struct ASTnode *single_statement(void) {
     case T_INT:
     case T_LONG:
 
-      // The beginning of a variable declaration.
-      // Parse the type and get the identifier.
-      // Then parse the rest of the declaration.
+      // 변수 선언의 시작
+      // 타입을 파싱하고 식별자를 가져온 후
+      // 나머지 선언을 파싱
       type = parse_type();
       ident();
       var_declaration(type, 1);
@@ -172,90 +145,62 @@ static struct ASTnode *single_statement(void) {
 }
 ```
 
-## Changes to the x86-64 Code Generator
 
-As always, many of the `cgXX()` functions in the platform-specific code
-in `cg.c` are exposed to the rest of the compiler as `genXX()` functions
-in `gen.c`. That's going to be the case here. So while I only mention the
-`cgXX()` functions, don't forget that there are often matching `genXX()`
-functions.
+## x86-64 코드 생성기의 변경 사항
 
-For each local variable, we need to allocate a position for it and
-record this in the symbol table's `posn` field. Here is how we do it.
-In `cg.c` we have a new static variable and two functions to manipulate it:
+언제나 그렇듯이, `cg.c` 파일에 있는 플랫폼별 코드의 많은 `cgXX()` 함수들은 `gen.c` 파일의 `genXX()` 함수로 컴파일러의 다른 부분에 노출된다. 여기서도 마찬가지다. 따라서 `cgXX()` 함수만 언급하더라도, 이에 대응하는 `genXX()` 함수가 있다는 것을 잊지 말아야 한다.
+
+각 지역 변수에 대해 위치를 할당하고 이를 심볼 테이블의 `posn` 필드에 기록해야 한다. 이를 위해 `cg.c`에 새로운 정적 변수와 이를 조작하는 두 개의 함수를 추가한다:
 
 ```c
-// Position of next local variable relative to stack base pointer.
-// We store the offset as positive to make aligning the stack pointer easier
+// 스택 베이스 포인터를 기준으로 한 다음 지역 변수의 위치.
+// 스택 포인터 정렬을 쉽게 하기 위해 오프셋을 양수로 저장한다.
 static int localOffset;
 static int stackOffset;
 
-// Reset the position of new local variables when parsing a new function
+// 새로운 함수를 파싱할 때 지역 변수의 위치를 초기화한다.
 void cgresetlocals(void) {
   localOffset = 0;
 }
 
-// Get the position of the next local variable.
-// Use the isparam flag to allocate a parameter (not yet XXX).
+// 다음 지역 변수의 위치를 얻는다.
+// isparam 플래그를 사용해 매개변수를 할당한다(아직 XXX는 아님).
 int cggetlocaloffset(int type, int isparam) {
-  // Decrement the offset by a minimum of 4 bytes
-  // and allocate on the stack
+  // 오프셋을 최소 4바이트 단위로 감소시키고 스택에 할당한다.
   localOffset += (cgprimsize(type) > 4) ? cgprimsize(type) : 4;
   return (-localOffset);
 }
 ```
 
-For now, we allocate all local variables on the stack. They are aligned
-with a minimum of 4 bytes between each one. For 64-bit integers and pointers,
-that's 8-bytes for each variable, though.
+현재는 모든 지역 변수를 스택에 할당한다. 각 변수 사이에는 최소 4바이트의 정렬이 이루어진다. 64비트 정수와 포인터의 경우 각각 8바이트가 할당된다.
 
-> I know, in the past, that multi-byte data items had to be properly aligned
-  in memory or the CPU would fault. It seems that, at least for x86-64,
-  there is [no need to align data items](https://lemire.me/blog/2012/05/31/data-alignment-for-speed-myth-or-reality/).
+> 과거에는 멀티바이트 데이터 항목이 메모리에 올바르게 정렬되지 않으면 CPU가 오류를 일으켰다. 그러나 적어도 x86-64에서는 [데이터 항목을 정렬할 필요가 없다](https://lemire.me/blog/2012/05/31/data-alignment-for-speed-myth-or-reality/).
 
-> However, the stack pointer on the x86-64 *does* have to be properly aligned before
-  a function call. In "[Optimizing Subroutines in Assembly Language](https://www.agner.org/optimize/optimizing_assembly.pdf)" by Agner Fog, page 30, he
-  notes that "The stack pointer must be aligned by 16 before any CALL instruction,
-  so that the value of RSP is 8 modulo 16 at the entry of a function."
+> 하지만 x86-64에서 스택 포인터는 함수 호출 전에 반드시 올바르게 정렬되어야 한다. Agner Fog의 "[Optimizing Subroutines in Assembly Language](https://www.agner.org/optimize/optimizing_assembly.pdf)" 30페이지에 따르면, "CALL 명령어 실행 전에 스택 포인터는 16바이트로 정렬되어야 하며, 함수 진입 시 RSP의 값은 8 modulo 16이어야 한다."
 
-> This means that, as part of the function preamble, we need to set `%rsp` to a
-  correctly aligned value.
+> 이는 함수 프리앰블의 일부로 `%rsp`를 올바르게 정렬된 값으로 설정해야 함을 의미한다.
 
-`cgresetlocals()` is called in `function_declaration()` once we have added
-the function's name to the symbol table but before we start parsing the
-local variable declarations. This sets `localOffset` back to zero.
+`cgresetlocals()`는 `function_declaration()`에서 함수 이름을 심볼 테이블에 추가한 후, 지역 변수 선언을 파싱하기 전에 호출된다. 이는 `localOffset`을 다시 0으로 설정한다.
 
-We saw that `addlocl()` is called with a new local scalar or local array
-is parsed. `addlocl()` calls `cggetlocaloffset()` with the type of the new
-variable. This decrements the offset from the stack base pointer by an
-approriate amount, and this offset is stored in the `posn` field for the
-symbol.
+새로운 지역 스칼라 변수나 지역 배열이 파싱될 때 `addlocl()`이 호출된다는 것을 확인했다. `addlocl()`은 새로운 변수의 타입과 함께 `cggetlocaloffset()`을 호출한다. 이는 스택 베이스 포인터로부터 오프셋을 적절한 크기만큼 감소시키고, 이 오프셋을 심볼의 `posn` 필드에 저장한다.
 
-Now that we have the symbol's offset from the stack base pointer, we
-now need to modify the code generator so that, when we are accessing a
-local variable instead of a global variable, we output an offset to `%rbp`
-instead of naming a global location.
+이제 심볼의 스택 베이스 포인터로부터의 오프셋을 얻었으므로, 전역 변수가 아닌 지역 변수에 접근할 때 `%rbp`에 대한 오프셋을 출력하도록 코드 생성기를 수정해야 한다.
 
-Thus, we now have a `cgloadlocal()` function which is nearly identical to
-`cgloadglob()` except that all `%s(%%rip)` format strings to print
-`Symtable[id].name` are replaced with `%d(%%rbp)` format strings to print
-`Symtable[id].posn`. In fact, if you search for `Symtable[id].posn` in `cg.c`,
-you will spot all of these new local variable references.
+따라서 이제 `cgloadlocal()` 함수가 추가되었다. 이 함수는 `cgloadglob()`과 거의 동일하지만, `Symtable[id].name`을 출력하는 `%s(%%rip)` 형식 문자열 대신 `Symtable[id].posn`을 출력하는 `%d(%%rbp)` 형식 문자열로 대체되었다. 실제로 `cg.c`에서 `Symtable[id].posn`을 검색하면 이러한 새로운 지역 변수 참조를 모두 찾을 수 있다.
 
-### Updating the Stack Pointer
 
-Now that we are using locations on the stack, we had better move the stack
-pointer down below the area which holds our local variables. Thus, we need
-to modify the stack pointer in our function preamble and postamble:
+스택 포인터 업데이트
+
+스택의 위치를 사용하고 있기 때문에, 스택 포인터를 로컬 변수가 저장된 영역 아래로 이동시켜야 한다. 따라서 함수 프리앰블과 포스트앰블에서 스택 포인터를 수정해야 한다:
 
 ```c
-// Print out a function preamble
+// 함수 프리앰블 출력
 void cgfuncpreamble(int id) {
   char *name = Symtable[id].name;
   cgtextseg();
 
-  // Align the stack pointer to be a multiple of 16
-  // less than its previous value
+  // 스택 포인터를 16의 배수로 정렬
+  // 이전 값보다 작은 값으로 설정
   stackOffset= (localOffset+15) & ~15;
   
   fprintf(Outfile,
@@ -266,7 +211,7 @@ void cgfuncpreamble(int id) {
           "\taddq\t$%d,%%rsp\n", name, name, name, -stackOffset);
 }
 
-// Print out a function postamble
+// 함수 포스트앰블 출력
 void cgfuncpostamble(int id) {
   cglabel(Symtable[id].endlabel);
   fprintf(Outfile, "\taddq\t$%d,%%rsp\n", stackOffset);
@@ -274,15 +219,12 @@ void cgfuncpostamble(int id) {
 }
 ```
 
-Remember that `localOffset` is negative. So we add a negative
-value in the function preamble, and add a negative negative value in the
-function postamble.
+`localOffset`이 음수라는 점을 기억해야 한다. 따라서 함수 프리앰블에서는 음수 값을 더하고, 함수 포스트앰블에서는 음수의 음수 값을 더한다.
 
-## Testing the Changes
 
-I think that is the bulk of the changes to add local variables to our
-compiler. The test program `tests/input25.c` demonstrates the storage of
-local variables on the stack:
+## 변경 사항 테스트
+
+컴파일러에 지역 변수를 추가하는 주요 변경 사항을 적용했다. 테스트 프로그램 `tests/input25.c`는 스택에 지역 변수를 저장하는 방식을 보여준다:
 
 ```c
 int a; int b; int c;
@@ -295,12 +237,12 @@ int main()
 }
 ```
 
-Here is the annotated assembly output:
+주석이 추가된 어셈블리 출력은 다음과 같다:
 
 ```
         .data
         .globl  a
-a:      .long   0                       # Three global variables
+a:      .long   0                       # 전역 변수 3개
         .globl  b
 b:      .long   0
         .globl  c
@@ -312,34 +254,33 @@ c:      .long   0
 main:
         pushq   %rbp
         movq    %rsp, %rbp
-        addq    $-16,%rsp               # Lower stack pointer by 16
+        addq    $-16,%rsp               # 스택 포인터를 16만큼 낮춤
         movq    $10, %r8
-        movl    %r8d, -12(%rbp)         # z is at offset -12
+        movl    %r8d, -12(%rbp)         # z는 오프셋 -12에 위치
         movq    $20, %r8
-        movl    %r8d, -8(%rbp)          # y is at offset -8
+        movl    %r8d, -8(%rbp)          # y는 오프셋 -8에 위치
         movq    $30, %r8
-        movb    %r8b, -4(%rbp)          # x is at offfset -4
+        movb    %r8b, -4(%rbp)          # x는 오프셋 -4에 위치
         movq    $5, %r8
-        movl    %r8d, a(%rip)           # a has a global label
+        movl    %r8d, a(%rip)           # a는 전역 레이블을 가짐
         movq    $15, %r8
-        movl    %r8d, b(%rip)           # b has a global label
+        movl    %r8d, b(%rip)           # b는 전역 레이블을 가짐
         movq    $25, %r8
-        movl    %r8d, c(%rip)           # c has a global label
+        movl    %r8d, c(%rip)           # c는 전역 레이블을 가짐
         jmp     L1
 L1:
-        addq    $16,%rsp                # Raise stack pointer by 16
+        addq    $16,%rsp                # 스택 포인터를 16만큼 올림
         popq    %rbp
         ret
 ```
 
-Finally, a `$ make test` demonstrates that the compiler passes all
-previous tests.
+마지막으로 `$ make test`를 실행하면 컴파일러가 모든 이전 테스트를 통과함을 확인할 수 있다.
 
-## Conclusion and What's Next
 
-I thought implementing local variables was going to be tricky, but after
-doing some thinking about the design of a solution, it turned out to be
-easier than I expected. Somehow I suspect the next step will be the tricky one.
+## 결론과 다음 단계
 
-In the next part of our compiler writing journey, I will attempt to
-add function arguments and parameters to our compiler. Wish me luck! [Next step](../24_Function_Params/Readme.md)
+지역 변수를 구현하는 작업이 까다로울 거라고 생각했지만, 해결책을 설계하면서 생각해보니 예상보다 쉬웠다. 어쩌면 다음 단계가 더 어려울 수도 있겠다는 생각이 든다.
+
+컴파일러 개발 여정의 다음 단계에서는 함수 인자와 매개변수를 컴파일러에 추가해볼 예정이다. 행운을 빈다! [다음 단계](../24_Function_Params/Readme.md)
+
+

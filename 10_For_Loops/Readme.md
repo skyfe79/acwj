@@ -1,63 +1,48 @@
-# Part 10: FOR Loops
+# 10부: FOR 루프 구현
 
-In this part of our compiler writing journey I'm going to add FOR loops.
-There is a wrinkle to work out in terms of implementation which I want
-to explain before I get to the discussion on how it got solved.
+컴파일러 개발 여정의 이번 단계에서는 FOR 루프를 추가한다. 구현 과정에서 해결해야 할 복잡한 문제가 하나 있는데, 이 문제에 대해 먼저 설명하고 나서 어떻게 해결했는지 논의할 것이다.
 
-## The FOR Loop Syntax
 
-I assume that you are familiar with the syntax of FOR loops. One example is
+## FOR 반복문 구문
+
+FOR 반복문의 구문에 익숙할 것이라 가정한다. 한 가지 예를 들면 다음과 같다.
 
 ```c
   for (i=0; i < MAX; i++)
     printf("%d\n", i);
 ```
 
-I'm going to use this BNF syntax for our language:
+이제 이 언어를 위해 BNF 구문을 사용할 것이다.
 
 ```
  for_statement: 'for' '(' preop_statement ';'
                           true_false_expression ';'
                           postop_statement ')' compound_statement  ;
 
- preop_statement:  statement  ;        (for now)
- postop_statement: statement  ;        (for now)
+ preop_statement:  statement  ;        (현재는 이렇게 정의)
+ postop_statement: statement  ;        (현재는 이렇게 정의)
 ```
 
-The `preop_statement` is run before the loop starts. Later on, we will
-have to limit exactly what sort of actions can be performed here (e.g. no
-IF statements). Then the `true_false_expression` is evaluated. If true
-the loop executes the `compound_statement`. Once this is done, the
-`postop_statement` is performed and the code loops back to redo the
-`true_false_expression`.
+`preop_statement`는 반복문이 시작되기 전에 실행된다. 나중에 여기서 수행할 수 있는 동작의 종류를 제한해야 한다(예: IF 문은 허용하지 않음). 그 다음 `true_false_expression`이 평가된다. 이 표현식이 참이면 `compound_statement`가 실행된다. 이 작업이 완료되면 `postop_statement`가 수행되고, 코드는 다시 `true_false_expression`을 평가하기 위해 반복된다.
 
-## The Wrinkle
 
-The wrinkle is that the `postop_statement` is parsed before the
-`compound_statement`, but we have to generate the code for the
-`postop_statement` *after* the code for the `compound_statement`.
+## 문제점
 
-There are several ways to solve this problem. When I wrote a previous
-compiler, I chose to put the `compound_statement` assembly code in
-a temporary buffer, and "play back" the buffer once I'd generated
-the code for the `postop_statement`. In the SubC compiler, Nils
-makes clever use of labels and jumps to labels to "thread" the code's
-execution to enforce the correct sequence.
+`postop_statement`는 `compound_statement`보다 먼저 파싱되지만, `postop_statement`의 코드는 `compound_statement`의 코드 *이후에* 생성해야 한다. 이 문제를 해결하는 방법은 여러 가지가 있다. 이전에 컴파일러를 작성할 때는 `compound_statement`의 어셈블리 코드를 임시 버퍼에 저장하고, `postop_statement`의 코드를 생성한 후에 그 버퍼를 "재생"하는 방식을 선택했다. SubC 컴파일러에서는 Nils가 라벨과 라벨로의 점프를 교묘하게 사용해 코드 실행을 "스레드"처럼 연결하여 올바른 순서를 강제한다.
 
-But we build an AST tree here. Let's use it to get the generated assembly
-code in the correct sequence.
+하지만 여기서는 AST 트리를 구축한다. 이를 활용해 생성된 어셈블리 코드가 올바른 순서로 나오도록 해보자.
 
-## What Sort of AST Tree?
 
-You might have noticed that a FOR loop has four structural components:
+## 어떤 종류의 AST 트리일까?
 
- 1. The `preop_statement`
- 2. The `true_false_expression`
- 3. The `postop_statement`
- 4. The `compound_statement`
+FOR 루프는 네 가지 구조적 요소를 가진다:
 
-I don't really want to change the AST node structure yet again to have
-four children. But we can visualise a FOR loop as an augmented WHILE loop:
+1. `preop_statement`
+2. `true_false_expression`
+3. `postop_statement`
+4. `compound_statement`
+
+AST 노드 구조를 다시 변경하여 네 개의 자식을 갖게 하고 싶지는 않다. 하지만 FOR 루프를 확장된 WHILE 루프로 시각화할 수 있다:
 
 ```
    preop_statement;
@@ -67,8 +52,7 @@ four children. But we can visualise a FOR loop as an augmented WHILE loop:
    }
 ```
 
-Can we build an AST tree with our existing node types to reflect this
-structure? Yes:
+기존의 노드 타입을 사용하여 이 구조를 반영한 AST 트리를 만들 수 있을까? 가능하다:
 
 ```
          A_GLUE
@@ -80,61 +64,41 @@ structure? Yes:
             compound  postop
 ```
 
-Manually traverse this tree top-down left-to-right and convince yourself
-that we will generate the assembly code in the right order.
-We had to glue the `compound_statement` and the `postop_statement`
-together so that, when the WHILE loop exits, it will skip over both the
-`compound_statement` and the `postop_statement`.
+이 트리를 위에서 아래로, 왼쪽에서 오른쪽으로 수동으로 탐색해 보면, 올바른 순서로 어셈블리 코드를 생성할 것임을 확인할 수 있다. WHILE 루프가 종료될 때 `compound_statement`와 `postop_statement`를 모두 건너뛰도록 하기 위해 이 두 문장을 함께 붙여야 한다.
 
-This also means that we need a new T_FOR token but we won't need a new
-AST node type. So the only compiler change will be scanning and parsing.
+이는 또한 새로운 T_FOR 토큰이 필요하지만 새로운 AST 노드 타입은 필요하지 않음을 의미한다. 따라서 컴파일러에서 변경해야 할 부분은 스캐닝과 파싱뿐이다.
 
-## Tokens and Scanning
 
-There is a new keyword 'for' and an associated token, T_FOR. No
-big changes here.
+## 토큰과 스캐닝
 
-## Parsing Statements
+새로운 키워드 'for'와 관련된 토큰 T_FOR가 추가되었다. 여기서는 큰 변화가 없다.
 
-We do need to make a structural change to the parser. For the FOR
-grammar, I only want a single statement as the `preop_statement`
-and the `postop_statement`. Right now, we have a `compound_statement()`
-function that simply loops until it hits a right curly bracket '}'.
-We need to separate this out so `compound_statement()` calls
-`single_statement()` to get one statement.
 
-But there's another wrinkle. Take the existing parsing of assignment
-statements in `assignment_statement()`. The parser must find a semicolon
-at the end of the statement.
+## 구문 분석 로직 개선
 
-That's good for compound statements but it won't work for FOR loops.
-I would have to write something like:
+파서의 구조를 조정해야 한다. FOR 문법에서 `preop_statement`와 `postop_statement`는 단일 문장만 허용해야 한다. 현재 `compound_statement()` 함수는 닫는 중괄호 '}'를 만날 때까지 반복하며 문장을 처리한다. 이를 분리해 `compound_statement()`가 `single_statement()`를 호출해 하나의 문장을 처리하도록 변경해야 한다.
+
+여기서 또 다른 문제가 발생한다. `assignment_statement()`에서 할당문을 파싱할 때, 문장 끝에 세미콜론을 찾는다. 이는 복합문(compound statement)에서는 적합하지만 FOR 루프에서는 동작하지 않는다. 예를 들어 다음과 같이 작성해야 한다:
 
 ```c
-  for (i=1 ; i < 10 ; i= i + 1; )
+for (i=1 ; i < 10 ; i= i + 1; )
 ```
 
-because each assignment statement *must* end with a semicolon.
+각 할당문이 반드시 세미콜론으로 끝나기 때문이다.
 
-What we need is for the single statement parser *not* to scan in the
-semicolon, but to leave that up to the compound statement parser.
-And we scan in semicolons for some statements (e.g. between assignment
-statements) and not for other statements (e.g. not between successive
-IF statements). 
+단일 문장 파서는 세미콜론을 스캔하지 않고, 이를 복합문 파서에 맡겨야 한다. 그리고 일부 문장(예: 할당문 사이)에서는 세미콜론을 스캔하지만, 다른 문장(예: 연속된 IF 문)에서는 스캔하지 않아야 한다.
 
-With all of that explained, let's now look at the new single and compound
-statement parsing code:
+이를 반영한 새로운 단일 및 복합문 파싱 코드는 다음과 같다:
 
 ```c
-// Parse a single statement
-// and return its AST
+// 단일 문장을 파싱하고 AST를 반환
 static struct ASTnode *single_statement(void) {
   switch (Token.token) {
     case T_PRINT:
       return (print_statement());
     case T_INT:
       var_declaration();
-      return (NULL);		// No AST generated here
+      return (NULL);		// 여기서는 AST 생성하지 않음
     case T_IDENT:
       return (assignment_statement());
     case T_IF:
@@ -148,35 +112,34 @@ static struct ASTnode *single_statement(void) {
   }
 }
 
-// Parse a compound statement
-// and return its AST
+// 복합문을 파싱하고 AST를 반환
 struct ASTnode *compound_statement(void) {
   struct ASTnode *left = NULL;
   struct ASTnode *tree;
 
-  // Require a left curly bracket
+  // 여는 중괄호를 요구
   lbrace();
 
   while (1) {
-    // Parse a single statement
+    // 단일 문장 파싱
     tree = single_statement();
 
-    // Some statements must be followed by a semicolon
+    // 일부 문장은 세미콜론으로 끝나야 함
     if (tree != NULL &&
 	(tree->op == A_PRINT || tree->op == A_ASSIGN))
       semi();
 
-    // For each new tree, either save it in left
-    // if left is empty, or glue the left and the
-    // new tree together
+    // 각 새로운 트리를 left에 저장
+    // left가 비어 있으면 새 트리를 저장하고,
+    // 그렇지 않으면 left와 새 트리를 결합
     if (tree != NULL) {
       if (left == NULL)
 	left = tree;
       else
 	left = mkastnode(A_GLUE, left, NULL, tree, 0);
     }
-    // When we hit a right curly bracket,
-    // skip past it and return the AST
+    // 닫는 중괄호를 만나면
+    // 이를 건너뛰고 AST를 반환
     if (Token.token == T_RBRACE) {
       rbrace();
       return (left);
@@ -185,67 +148,65 @@ struct ASTnode *compound_statement(void) {
 }
 ```
 
-I've also removed the calls to `semi()` in `print_statement()` and
-`assignment_statement()`.
+또한 `print_statement()`와 `assignment_statement()`에서 `semi()` 호출을 제거했다.
 
-## Parsing FOR Loops
 
-Given the BNF syntax for FOR loops above, this is straightforward. And
-given the shape of the AST tree we want, the code to build this tree is
-also straightforward. Here's the code:
+## FOR 루프 파싱
+
+위에서 제시한 FOR 루프의 BNF 문법을 바탕으로, 이를 파싱하는 것은 간단하다. 또한 원하는 AST 트리의 구조를 고려하면, 이 트리를 생성하는 코드도 직관적이다. 다음은 해당 코드이다:
 
 ```c
-// Parse a FOR statement
-// and return its AST
+// FOR 문을 파싱하고
+// 해당 AST를 반환한다
 static struct ASTnode *for_statement(void) {
   struct ASTnode *condAST, *bodyAST;
   struct ASTnode *preopAST, *postopAST;
   struct ASTnode *tree;
 
-  // Ensure we have 'for' '('
+  // 'for' '('가 있는지 확인한다
   match(T_FOR, "for");
   lparen();
 
-  // Get the pre_op statement and the ';'
+  // pre_op 문과 ';'를 가져온다
   preopAST= single_statement();
   semi();
 
-  // Get the condition and the ';'
+  // 조건문과 ';'를 가져온다
   condAST = binexpr(0);
   if (condAST->op < A_EQ || condAST->op > A_GE)
-    fatal("Bad comparison operator");
+    fatal("잘못된 비교 연산자");
   semi();
 
-  // Get the post_op statement and the ')'
+  // post_op 문과 ')'를 가져온다
   postopAST= single_statement();
   rparen();
 
-  // Get the compound statement which is the body
+  // 본문에 해당하는 복합문을 가져온다
   bodyAST = compound_statement();
 
-  // For now, all four sub-trees have to be non-NULL.
-  // Later on, we'll change the semantics for when some are missing
+  // 현재는 네 개의 서브 트리가 모두 NULL이 아니어야 한다.
+  // 나중에 일부가 누락된 경우의 의미를 변경할 예정이다
 
-  // Glue the compound statement and the postop tree
+  // 복합문과 postop 트리를 결합한다
   tree= mkastnode(A_GLUE, bodyAST, NULL, postopAST, 0);
 
-  // Make a WHILE loop with the condition and this new body
+  // 조건문과 새로운 본문으로 WHILE 루프를 만든다
   tree= mkastnode(A_WHILE, condAST, NULL, tree, 0);
 
-  // And glue the preop tree to the A_WHILE tree
+  // preop 트리를 A_WHILE 트리에 결합한다
   return(mkastnode(A_GLUE, preopAST, NULL, tree, 0));
 }
 ```
 
-## Generating the Assembly Code
 
-Well, all we have done is synthesized a tree which has a WHILE loop
-in it with some sub-trees glued together, so there are no changes
-to the generation side of the compiler.
+## 어셈블리 코드 생성
 
-## Trying It Out
+지금까지 우리는 WHILE 루프와 여러 하위 트리를 결합한 트리를 합성했다. 따라서 컴파일러의 코드 생성 부분에는 아무런 변경이 필요하지 않다.
 
-The `tests/input07` file has this program in it:
+
+## 직접 해보기
+
+`tests/input07` 파일에는 다음과 같은 프로그램이 들어 있다:
 
 ```c
 {
@@ -256,7 +217,7 @@ The `tests/input07` file has this program in it:
 }
 ```
 
-When we do `make test7`, we get this output:
+`make test7`를 실행하면 다음과 같은 결과가 출력된다:
 
 ```
 cc -o comp1 -g cg.c decl.c expr.c gen.c main.c misc.c scan.c
@@ -276,7 +237,7 @@ cc -o out out.s
 10
 ```
 
-and here is the relevant assembly output:
+그리고 여기 관련된 어셈블리 출력이 있다:
 
 ```
 	.comm	i,8,8
@@ -285,32 +246,32 @@ and here is the relevant assembly output:
 L1:
 	movq	i(%rip), %r8
 	movq	$10, %r9
-	cmpq	%r9, %r8		# Is i < 10?
-	jg	L2			# i >= 10, jump to L2
+	cmpq	%r9, %r8		# i < 10인가?
+	jg	L2			# i >= 10이면 L2로 점프
 	movq	i(%rip), %r8
 	movq	%r8, %rdi
-	call	printint		# print i
+	call	printint		# i 출력
 	movq	i(%rip), %r8
 	movq	$1, %r9
 	addq	%r8, %r9		# i = i + 1
 	movq	%r9, i(%rip)
-	jmp	L1			# Jump to top of loop
+	jmp	L1			# 루프의 시작으로 점프
 L2:
 ```
 
-## Conclusion and What's Next
 
-We now have a reasonable number of control structures in our language:
-IF statements, WHILE loops and FOR loops. The question is, what to
-tackle next? There are so many things we could look at:
+## 결론 및 다음 단계
 
- + types
- + local versus global things
- + functions
- + arrays and pointers
- + structures and unions
- + auto, static and friends
+현재 우리의 언어에는 상당수의 제어 구조가 구현되어 있다:
+IF 문, WHILE 루프, FOR 루프 등이 그렇다. 이제 다음 단계로 무엇을 다뤄야 할까? 고려할 만한 주제는 다양하다:
 
-I've decided to look at functions. So,
-in the next part of our compiler writing journey, we will begin
-the first of several stages to add functions to our language. [Next step](../11_Functions_pt1/Readme.md)
+ + 타입
+ + 지역 변수와 전역 변수
+ + 함수
+ + 배열과 포인터
+ + 구조체와 공용체
+ + auto, static 등의 키워드
+
+여기서는 함수를 다루기로 결정했다. 따라서 컴파일러 개발의 다음 단계에서는, 우리의 언어에 함수를 추가하기 위한 첫 번째 작업을 시작할 것이다. [다음 단계](../11_Functions_pt1/Readme.md)
+
+

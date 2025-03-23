@@ -1,10 +1,9 @@
-# Part 37: Switch Statements
+# 37장: Switch 문 구현
 
-In this part of our compiler writing journey, we are going to implement
-the 'switch' statement. This is really tricky for several reasons which
-I'll cover. So let's start with an example and look at the implications.
+컴파일러 제작 과정의 이번 단계에서는 'switch' 문을 구현한다. 여러 가지 이유로 이 작업은 상당히 까다롭다. 이에 대해 자세히 살펴보기 전에, 먼저 예제를 통해 어떤 의미가 있는지 알아보자.
 
-## An Example Switch Statement
+
+## switch 문 예제
 
 ```c
   switch(x) {
@@ -15,197 +14,129 @@ I'll cover. So let's start with an example and look at the implications.
   }
 ```
 
-This is like a multi-way 'if' statement where the value of `x` chooses
-the branch to take. However, we need to insert the `break` statement to
-bypass all the other branches; if we leave out the `break` statement,
-the branch that we are in falls through and continues on with the execution
-of the next branch.
+이 코드는 `x`의 값에 따라 실행할 분기를 선택하는 다중 선택 구조이다. `if` 문과 유사하지만, `break` 문을 사용해 다른 분기로 넘어가지 않도록 해야 한다. `break` 문을 생략하면 현재 분기가 끝나고 다음 분기가 계속 실행된다.
 
-The expression for the 'switch' decision has to be integer, and all of the
-case options have to be integer literals. We can't say `case 3*y+17`, for
-example.
+`switch` 문의 조건식은 정수 타입이어야 하며, 모든 `case` 옵션도 정수 리터럴이어야 한다. 예를 들어 `case 3*y+17`과 같은 표현은 사용할 수 없다.
 
-The `default` case catches all values that are not given by previous cases.
-It has to appear as the last case in the list. Also, we cannot have duplicate
-case values, so `case 2: ...; case 2` is not permitted.
+`default` 케이스는 이전 `case`에서 다루지 않은 모든 값을 처리한다. `default`는 항상 마지막 케이스로 위치해야 한다. 또한 중복된 `case` 값을 사용할 수 없으므로 `case 2: ...; case 2`와 같은 코드는 허용되지 않는다.
 
-## Converting the Above into Assembly
 
-One way to translate a 'switch' statement into assembly is to treat it
-as a multi-way 'if' statement. This would mean that we would compare
-`x` against integer values, one after the other, and go into or skip
-over sections of assembly code as required. This would work but it makes
-the assembly code inefficient, especially if you consider this example:
+## 위 내용을 어셈블리로 변환하기
+
+'switch' 문을 어셈블리로 변환하는 한 가지 방법은 이를 다중 'if' 문으로 처리하는 것이다. 이 방법은 `x`를 정수 값과 하나씩 비교하며, 필요한 어셈블리 코드 섹션으로 이동하거나 건너뛰는 방식이다. 이 방법은 동작하지만, 특히 다음과 같은 예제를 고려할 때 어셈블리 코드가 비효율적이 된다:
 
 ```c
   switch (2 * x - (18 +y)/z) { ... }
 ```
 
-Given our current
-"[KISS](https://en.wikipedia.org/wiki/KISS_principle)"
-compiler's operation, we would have to evaluate the
-expression again and again for each comparison against a literal value.
+현재 우리의 "[KISS](https://en.wikipedia.org/wiki/KISS_principle)" 컴파일러의 동작 방식을 고려하면, 리터럴 값과 비교할 때마다 이 표현식을 반복적으로 평가해야 한다.
 
-It makes more sense to evaluate the 'switch' expression once. Then, compare
-this value against a table of case literal values. When we find a match, we
-jump to the code branch associated with the case values. This is known
-as a [jump table](https://en.wikipedia.org/wiki/Branch_table).
+'switch' 표현식을 한 번만 평가하는 것이 더 합리적이다. 그런 다음, 이 값을 케이스 리터럴 값 테이블과 비교한다. 일치하는 값을 찾으면, 해당 케이스 값과 연결된 코드 분기로 점프한다. 이를 [점프 테이블](https://en.wikipedia.org/wiki/Branch_table)이라고 한다.
 
-It means that, for each case option, we will need to create a label to place
-at the beginning of the code for this option. As an example, the jump table
-for the first example above might look like:
+이 방법은 각 케이스 옵션마다 해당 코드의 시작 부분에 레이블을 생성해야 한다는 것을 의미한다. 예를 들어, 위 첫 번째 예제의 점프 테이블은 다음과 같을 수 있다:
 
-| Case Value | Label |
+| 케이스 값 | 레이블 |
 |:----------:|:-----:|
 |     1      |  L18  |
 |     2      |  L19  |
 |     3      |  L22  |
-|  default   |  L26  |
+|  기본값   |  L26  |
 
-We also need a label to mark the code after the 'switch' statement. When
-one code branch wants to `break;`, we jump to this 'switch' end label.
-Otherwise, we let the code branch fall through into the next code branch.
+또한 'switch' 문 이후의 코드를 표시할 레이블도 필요하다. 코드 분기에서 `break;`를 실행하려면 이 'switch' 종료 레이블로 점프한다. 그렇지 않으면 코드 분기가 다음 코드 분기로 넘어가게 된다.
 
-## Parsing Implications
 
-All of the above is fine and good, except that we have to parse a 'switch'
-statement from top to bottom. This means that we won't know how big the
-jump table should be until after we have parsed all of the cases. This
-also means that, unless we perform some clever tricks, we will have generated
-the assembly code for all the cases *before* we can generate the jump table.
+## 파싱 시 고려사항
 
-As you know, I'm writing this compiler following the "KISS principle": keep
-it simple, stupid! So I am avoiding the clever tricks, but this means that,
-yes, we are going to delay the output of the jump table until after we
-generate all of the assembly code for the various cases.
+위에서 설명한 내용은 모두 좋지만, 'switch' 문을 위에서 아래로 파싱해야 한다는 점을 고려해야 한다. 이는 모든 case를 파싱한 후에야 점프 테이블의 크기를 알 수 있다는 것을 의미한다. 또한, 특별한 트릭을 사용하지 않는 한 모든 case에 대한 어셈블리 코드를 생성한 후에야 점프 테이블을 생성할 수 있다.
 
-Visually, here is how we are going to lay out our code:
+여러분도 알다시피, 나는 "KISS 원칙(Keep It Simple, Stupid)"을 따르며 이 컴파일러를 작성하고 있다. 따라서 복잡한 트릭을 피하고 있는데, 이는 점프 테이블의 출력을 모든 case에 대한 어셈블리 코드를 생성한 후로 미루겠다는 것을 의미한다.
+
+시각적으로, 우리가 코드를 배치할 방식은 다음과 같다:
 
 ![](Figs/switch_logic.png)
 
-The code to evaluate the switch decision is at the top, as we parse it first.
-We don't want to continue on into the first case, so we can jump to a label
-which we will output later.
+스위치 결정을 평가하는 코드는 가장 위에 위치한다. 우리는 이를 먼저 파싱한다. 첫 번째 case로 넘어가지 않기 위해, 나중에 출력할 레이블로 점프할 수 있다.
 
-Then we parse each case statement and generate the corresponding assembly code.
-We will have already generated an "end of switch" label, so we can jump to it.
-Again, we will output this label later.
+그런 다음 각 case 문을 파싱하고 해당 어셈블리 코드를 생성한다. 이미 "switch 종료" 레이블을 생성했으므로, 이를 통해 점프할 수 있다. 이 레이블 역시 나중에 출력할 것이다.
 
-As we generate each case, we get a label for it and output this label. 
-Once all the cases and the default case (if any) are output, we can now
-generate the jump table.
+각 case를 생성할 때마다 해당 레이블을 얻고 이를 출력한다. 모든 case와 기본 case(존재한다면)를 출력한 후, 이제 점프 테이블을 생성할 수 있다.
 
-But now we need some code to walk the jump table, compare the switch
-decision against each case value, and jump appropriately. We could
-generate this assembly code for each and every 'switch' statement but,
-if this jump handling code is large, we will be wasting memory. It's
-better to have one copy of the jump handling code in memory, but now
-we have to jump to it! Even worse, this code doesn't know which register
-holds the switch decision result, so we will have to copy this register
-into a known register, and copy the base of the jump table into a known
-register.
+하지만 이제 점프 테이블을 순회하며 스위치 결정을 각 case 값과 비교하고 적절히 점프할 코드가 필요하다. 이를 모든 'switch' 문에 대해 어셈블리 코드로 생성할 수도 있지만, 이 점프 처리 코드가 크다면 메모리를 낭비하게 될 것이다. 메모리에 점프 처리 코드를 한 번만 두는 것이 더 나은데, 이제는 이 코드로 점프해야 한다! 더 나쁜 점은, 이 코드가 스위치 결정 결과를 담고 있는 레지스터를 알지 못하므로, 이 레지스터를 알려진 레지스터로 복사하고 점프 테이블의 베이스를 알려진 레지스터로 복사해야 한다는 것이다.
 
-What we have done here is trade off complexity in the parsing and code
-generation for a spaghetti of assembly code with jumps all over the place.
-Well, the CPU can deal with the jump spaghetti, so for now it's a fair
-tradeoff. Obviously, a production compiler would do things differently.
+여기서 우리는 파싱과 코드 생성의 복잡성을 어셈블리 코드의 스파게티와 교환했다. CPU는 이 점프 스파게티를 처리할 수 있으므로, 현재로서는 공정한 절충이다. 당연히, 실제 제품용 컴파일러는 이와 다르게 동작할 것이다.
 
-The red lines in the diagram show the flow of execution from the
-switch decision to loading the registers to the jump table handling
-and finally to the specific case code. The green line shows that the
-base address of the jump table is passed to the jump table handling code.
-Finally, the blue lines shows that the case ended with a `break;` which
-jumped to the end of the switch assembly code.
+다이어그램의 빨간 선은 스위치 결정에서 레지스터 로딩, 점프 테이블 처리, 그리고 특정 case 코드로의 실행 흐름을 보여준다. 초록색 선은 점프 테이블의 베이스 주소가 점프 테이블 처리 코드로 전달되는 것을 보여준다. 마지막으로, 파란색 선은 case가 `break;`로 끝나 스위치 어셈블리 코드의 끝으로 점프하는 것을 보여준다.
 
-So, the assembly output is ugly but it does work. Now that we've seen
-how we are going to implement 'switch' statements, let's actually do it.
+따라서, 어셈블리 출력은 보기 흉하지만 동작은 한다. 이제 'switch' 문을 어떻게 구현할지 살펴봤으니, 실제로 이를 구현해보자.
 
-## New Keywords and Tokens
 
-We have two new tokens, T_CASE and T_DEFAULT, to go along with the new `case`
-and `default` keywords. As always, browse the code to see how this is done.
+## 새로운 키워드와 토큰
 
-## New AST Node Types
+새로운 `case`와 `default` 키워드와 함께 사용할 두 개의 새로운 토큰, T_CASE와 T_DEFAULT를 추가했다. 이와 관련된 구현 내용은 항상 그렇듯 코드를 직접 살펴보면 확인할 수 있다.
 
-We need to build the AST tree to represent 'switch' statements. The structure
-of a 'switch' statement is in no way a binary tree like our expressions.
-But it is *our* AST tree, so we can shape it any way that suits us.
-So I sat down for a bit and decided to go with this structure:
+
+## 새로운 AST 노드 타입
+
+'switch' 문을 표현하기 위해 AST 트리를 구축해야 한다. 'switch' 문의 구조는 우리가 다뤄왔던 표현식과 같은 이진 트리 형태가 아니다. 하지만 이는 우리만의 AST 트리이므로, 필요에 맞게 구조를 설계할 수 있다. 고민 끝에 다음과 같은 구조를 선택했다:
 
 ![](Figs/switch_ast.png)
 
-The root of the 'switch' tree is A_SWITCH, On the left is the sub-tree with
-the expression that calculates the switch's condition. On the right we
-have a linked list of A_CASE nodes, one for each case. Finally, there is
-an optional A_DEFAULT to capture any default case.
+'switch' 트리의 루트는 A_SWITCH 노드다. 왼쪽에는 switch 조건을 계산하는 표현식 서브트리가 위치한다. 오른쪽에는 각 케이스를 나타내는 A_CASE 노드들이 연결 리스트 형태로 배치된다. 마지막으로, 기본 케이스를 나타내는 A_DEFAULT 노드가 선택적으로 추가될 수 있다.
 
-The `intvalue` field in each A_CASE node will hold the case value which
-the expression must match. The left child sub-tree will hold the details
-of the compound statement which is the case's body. At this point, we don't
-have any jump labels or the jump table: we will generate this later.
+각 A_CASE 노드의 `intvalue` 필드는 표현식이 매칭해야 하는 케이스 값을 저장한다. 왼쪽 자식 서브트리는 해당 케이스의 본문을 구성하는 복합문의 세부 정보를 담는다. 현재 단계에서는 점프 레이블이나 점프 테이블은 존재하지 않으며, 이는 나중에 생성할 예정이다.
 
-## Parsing the Switch Statement
 
-With all the above on-board, we're now ready to look at the parsing of
-a 'switch' statement. There is quite a lot of error checking code here,
-so I will take it in small sections. This code is in `stmt.c` and
-is called from `single_statement()`:
+## switch 문 파싱하기
+
+지금까지 배운 내용을 바탕으로 이제 `switch` 문을 파싱하는 방법을 살펴볼 준비가 되었다. 여기에는 상당히 많은 오류 검사 코드가 포함되어 있으므로, 작은 섹션으로 나누어 설명할 것이다. 이 코드는 `stmt.c` 파일에 있으며, `single_statement()` 함수에서 호출된다.
 
 ```c
     case T_SWITCH:
       return (switch_statement());
 ```
 
-Let's go..
+시작해 보자.
 
 ```c
-// Parse a switch statement and return its AST
+// switch 문을 파싱하고 AST를 반환한다.
 static struct ASTnode *switch_statement(void) {
   struct ASTnode *left, *n, *c, *casetree= NULL, *casetail;
   int inloop=1, casecount=0;
   int seendefault=0;
   int ASTop, casevalue;
 
-  // Skip the 'switch' and '('
+  // 'switch'와 '('를 건너뛴다.
   scan(&Token);
   lparen();
 
-  // Get the switch expression, the ')' and the '{'
+  // switch 표현식, ')' 및 '{'를 가져온다.
   left= binexpr(0);
   rparen();
   lbrace();
 
-  // Ensure that this is of int type
+  // 이 표현식이 정수 타입인지 확인한다.
   if (!inttype(left->type))
     fatal("Switch expression is not of integer type");
 ```
 
-OK, so there's a lot of local variables at the top which should clue you
-in that we will have to deal with some state in this function. This first
-section is easy, though: parse the `switch (expression) {` syntax, 
-get the AST for the expression and ensure that its is of integer type.
+맨 위에 많은 지역 변수가 선언되어 있는데, 이는 이 함수에서 상태를 처리해야 함을 암시한다. 첫 번째 섹션은 간단하다: `switch (expression) {` 구문을 파싱하고, 표현식의 AST를 가져온 후, 이 표현식이 정수 타입인지 확인한다.
 
 ```c
-  // Build an A_SWITCH subtree with the expression as
-  // the child
+  // 표현식을 자식으로 하는 A_SWITCH 서브트리를 만든다.
   n= mkastunary(A_SWITCH, 0, left, NULL, 0);
 
-  // Now parse the cases
+  // 이제 case를 파싱한다.
   Switchlevel++;
 ```
 
-We've got the switch decision tree, so we can now build the A_SWITCH node
-which we will return. Do you remember that we could only let a `break;`
-occur when we are inside at least one loop. Well, now we also have to
-let `break;` happen when there is at least one 'switch' statement. Thus,
-there is a new global variable, `Switchlevel` to record this.
+이제 switch 결정 트리를 얻었으므로, 반환할 A_SWITCH 노드를 만들 수 있다. `break;`는 최소한 하나의 루프 안에서만 발생할 수 있다는 것을 기억할 것이다. 이제는 `break;`가 최소한 하나의 `switch` 문 안에서도 발생할 수 있도록 해야 한다. 이를 위해 새로운 전역 변수 `Switchlevel`을 사용한다.
 
 ```c
-  // Now parse the cases
+  // 이제 case를 파싱한다.
   Switchlevel++;
   while (inloop) {
     switch(Token.token) {
-      // Leave the loop when we hit a '}'
+      // '}'를 만나면 루프를 빠져나간다.
       case T_RBRACE: if (casecount==0)
                         fatal("No cases in switch");
                      inloop=0; break;
@@ -213,75 +144,60 @@ there is a new global variable, `Switchlevel` to record this.
   }
 ```
 
-The loop is controlled by `inloop` which starts at one. When we hit a '}'
-token, we reset it to zero and break out of this 'switch' statement, thus
-ending the loop. We also check that we have seen at least one case.
+루프는 `inloop` 변수에 의해 제어되며, 이 변수는 처음에 1로 설정된다. '}' 토큰을 만나면 이 변수를 0으로 설정하고 `switch` 문을 빠져나가 루프를 종료한다. 또한 최소한 하나의 case가 있는지 확인한다.
 
-> It's a bit weird using a 'switch' statement to parse 'switch' statements.
+> `switch` 문을 파싱하기 위해 `switch` 문을 사용하는 것이 약간 이상하게 느껴질 수 있다.
 
-Now we move on to the parsing of `case` and `default`:
+이제 `case`와 `default` 파싱으로 넘어간다.
 
 ```c
       case T_CASE:
       case T_DEFAULT:
-        // Ensure this isn't after a previous 'default'
+        // 이전에 'default'가 나온 후인지 확인한다.
         if (seendefault)
           fatal("case or default after existing default");
 ```
 
-We have a lot of common code to perform, so both tokens fall into the
-same code. First, ensure that we haven't already seen a default case,
-and this has to be the last case in the series.
+여기서는 많은 공통 코드를 실행해야 하므로, 두 토큰이 동일한 코드로 들어간다. 먼저, 이미 `default` case가 나왔는지 확인한다. `default` case는 반드시 마지막 case여야 한다.
 
 ```c
-        // Set the AST operation. Scan the case value if required
+        // AST 연산을 설정한다. 필요한 경우 case 값을 스캔한다.
         if (Token.token==T_DEFAULT) {
           ASTop= A_DEFAULT; seendefault= 1; scan(&Token);
         } else ...
 ```
 
-If we are parsing `default:`, then there is no following integer value.
-Skip over the keyword and record that we have seen a default case.
+`default:`를 파싱하는 경우, 뒤에 오는 정수 값이 없다. 키워드를 건너뛰고 `default` case가 나왔음을 기록한다.
 
 ```c
         } else  {
           ASTop= A_CASE; scan(&Token);
           left= binexpr(0);
-          // Ensure the case value is an integer literal
+          // case 값이 정수 리터럴인지 확인한다.
           if (left->op != A_INTLIT)
             fatal("Expecting integer literal for case value");
           casevalue= left->intvalue;
 
-          // Walk the list of existing case values to ensure
-          // that there isn't a duplicate case value
+          // 기존 case 값 목록을 순회하며 중복된 case 값이 없는지 확인한다.
           for (c= casetree; c != NULL; c= c -> right)
             if (casevalue == c->intvalue)
               fatal("Duplicate case value");
         }
 ```
 
-This code deals specifically with `case <value>:`. We read in the value after
-the case using `binexpr()`. Now, I could have been "clever" and called
-`primary()` instead  which goes straight to parsing integer literals.
-However, `primary()` can call `binexpr()` anyway, so it really doesn't make
-any difference: we are still going to have to error check the resulting
-tree to ensure that it is an A_INTLIT node only.
+이 코드는 `case <value>:`를 특별히 처리한다. `binexpr()`를 사용해 `case` 뒤의 값을 읽어온다. 여기서 `primary()`를 호출해 정수 리터럴을 바로 파싱할 수도 있었지만, `primary()`는 어차피 `binexpr()`를 호출할 수 있으므로 큰 차이는 없다. 결과 트리가 A_INTLIT 노드인지 확인하기 위해 오류 검사를 해야 한다.
 
-Then we walk the list of previous A_CASE nodes that we have (`casetree`
-points to the head of this list) to ensure that we don't have any
-duplicate case values.
+그런 다음 이전에 만든 A_CASE 노드 목록(`casetree`가 이 목록의 헤드를 가리킴)을 순회하며 중복된 case 값이 없는지 확인한다.
 
-Along the way, we have set the `ASTop` variable to either A_CASE for
-a case with an integer literal value or A_DEFAULT for the default case.
-We can now perform the code common to both.
+이 과정에서 `ASTop` 변수를 정수 리터럴 값을 가진 case에 대해 A_CASE로, `default` case에 대해 A_DEFAULT로 설정한다. 이제 두 경우에 공통적으로 수행할 코드를 실행할 수 있다.
 
 ```c
-        // Scan the ':' and get the compound expression
+        // ':'를 스캔하고 복합 표현식을 가져온다.
         match(T_COLON, ":");
         left= compound_statement(); casecount++;
 
-        // Build a sub-tree with the compound statement as the left child
-        // and link it in to the growing A_CASE tree
+        // 복합 문을 왼쪽 자식으로 하는 서브트리를 만들고, 
+        // 성장 중인 A_CASE 트리에 연결한다.
         if (casetree==NULL) {
           casetree= casetail= mkastunary(ASTop, 0, left, NULL, casevalue);
         } else {
@@ -291,11 +207,7 @@ We can now perform the code common to both.
         break;
 ```
 
-Check that the next token is a ':'. Get the AST sub-tree with the
-compound statement in it. Build an A_CASE or A_DEFAULT node with
-this sub-tree as the left child, and link this to the linked list
-of A_CASE/A_DEFAULT nodes: `casetree` is the head and `casetail`
-is the tail of this list.
+다음 토큰이 ':'인지 확인한다. 복합 문을 포함한 AST 서브트리를 가져온다. 이 서브트리를 왼쪽 자식으로 하는 A_CASE 또는 A_DEFAULT 노드를 만들고, 이 노드를 A_CASE/A_DEFAULT 노드의 연결 리스트에 연결한다: `casetree`는 이 목록의 헤드이고 `casetail`은 꼬리이다.
 
 ```c
       default:
@@ -304,14 +216,12 @@ is the tail of this list.
   }
 ```
 
-There should only be `case` and `default` keywords in the 'switch' body,
-so ensure that this is the case.
+`switch` 본문에는 `case`와 `default` 키워드만 있어야 하므로, 이를 확인한다.
 
 ```c
   Switchlevel--;
 
-  // We have a sub-tree with the cases and any default. Put the
-  // case count into the A_SWITCH node and attach the case tree.
+  // case와 default를 포함한 서브트리가 있다. case 수를 A_SWITCH 노드에 넣고 case 트리를 연결한다.
   n->intvalue= casecount;
   n->right= casetree;
   rbrace();
@@ -319,18 +229,14 @@ so ensure that this is the case.
   return(n);
 ```
 
-We've finally parsed all of the cases and the default case, and we now
-have the count of them and the list which `casetree` points to. Add
-these values to the A_SWITCH node and return this as the final tree.
+이제 모든 case와 `default` case를 파싱했으며, 이들의 수와 `casetree`가 가리키는 목록을 얻었다. 이 값을 A_SWITCH 노드에 추가하고 최종 트리로 반환한다.
 
-OK, so that was a substantial amount of parsing. Now we need to
-turn our attention to code generation.
+이렇게 해서 상당한 양의 파싱을 마쳤다. 이제 코드 생성에 주목할 차례이다.
 
-## Switch Code Generation: An Example.
 
-At this point I think it would be worth seeing the assembly output of
-an example 'switch' statement so that you can see how the code matches
-the graphic of execution flow that I gave at the top. Here is the example:
+## 스위치 코드 생성: 예제
+
+이제 'switch' 문의 어셈블리 출력을 살펴보면서 코드가 어떻게 실행 흐름을 따르는지 확인해 보자. 다음은 예제 코드이다:
 
 ```c
 #include <stdio.h>
@@ -348,138 +254,110 @@ int main() {
 }
 ```
 
-First up, yes we do need '{' ... '}' around the case bodies. This is
-because I still haven't solved the "dangling else" problem, so all
-compound statements have to be surrounded by '{' ... '}'.
+먼저, 각 case 문의 본문을 '{' ... '}'로 감싸야 한다. 이는 "dangling else" 문제를 아직 해결하지 못했기 때문에 모든 복합 문을 '{' ... '}'로 감싸야 하기 때문이다.
 
-I'm going to leave out the jump table handling code for now, but here is
-the assembly output for this example:
+점프 테이블 처리 코드는 잠시 생략하고, 이 예제의 어셈블리 출력을 살펴보자:
 
 ![](Figs/switch_logic2.png)
 
-The code that loads `x` into a register is at the top, and it
-jumps down past the jump table. As the jump table handling code
-doesn't know which register this will be, we always load the
-value into `%rax`, and we load the jump table's base address
-into `%rdx`.
+`x`를 레지스터에 로드하는 코드는 맨 위에 있으며, 점프 테이블을 지나 아래로 이동한다. 점프 테이블 처리 코드는 어떤 레지스터를 사용할지 모르기 때문에 항상 `%rax`에 값을 로드하고, 점프 테이블의 기본 주소를 `%rdx`에 로드한다.
 
-The jump table itself has this structure:
+점프 테이블의 구조는 다음과 같다:
 
- + First is the number of cases with integer values
- + Next is a set of value/label pairs, one for each case
- + Finally there is the label of the default case. If there is
-   no default case, this has to be the label of the 'switch' end,
-   so that we do no code if there is no matching case.
+ + 첫 번째는 정수 값을 가진 case의 개수이다.
+ + 다음은 각 case에 대한 값/레이블 쌍이다.
+ + 마지막은 기본 case의 레이블이다. 기본 case가 없으면 'switch' 문의 끝을 가리키는 레이블이어야 하며, 이는 일치하는 case가 없을 때 아무 코드도 실행하지 않도록 한다.
 
-The jump table handling code (which we will look at soon)
-interprets the jump table and jumps to one of the labels in this
-table. Let's assume that we have jumped to `L11` which is 
-`case 2:`. We perform the code for this case option. This option
-has  a `break;` statement, so there is a jump to `L9` which is
-the label for the end of the 'switch' statement.
+점프 테이블 처리 코드(곧 살펴볼 예정)는 점프 테이블을 해석하고 이 테이블의 레이블 중 하나로 점프한다. `case 2:`에 해당하는 `L11`로 점프했다고 가정해 보자. 이 case 옵션의 코드를 실행한다. 이 옵션에는 `break;` 문이 있으므로 'switch' 문의 끝을 가리키는 `L9`로 점프한다.
 
-## The Jump Table Handling Code
 
-You already know that x86-64 assembly code isn't my forte.
-Therefore, I've borrowed the jump table handling code directly
-from [SubC](http://www.t3x.org/subc/). I've added it to
-the `cgpreamble()` function in `cg.c`, so that it is output
-for every assembly file that we create. Here is the commented code:
+## 점프 테이블 처리 코드
+
+x86-64 어셈블리 코드는 내 전문 분야가 아니다. 그래서 [SubC](http://www.t3x.org/subc/)에서 점프 테이블 처리 코드를 그대로 가져왔다. 이 코드를 `cg.c` 파일의 `cgpreamble()` 함수에 추가해서, 생성하는 모든 어셈블리 파일에 이 코드가 포함되도록 했다. 아래는 주석이 달린 코드다:
 
 ```
-# internal switch(expr) routine
-# %rsi = switch table, %rax = expr
+# switch(expr) 내부 루틴
+# %rsi = 스위치 테이블, %rax = expr
 
 switch:
-        pushq   %rsi            # Save %rsi
-        movq    %rdx,%rsi       # Base of jump table -> %rsi
-        movq    %rax,%rbx       # Switch value -> %rbx
-        cld                     # Clear direction flag
-        lodsq                   # Load count of cases into %rcx,
-        movq    %rax,%rcx       # incrementing %rsi in the process
+        pushq   %rsi            # %rsi 저장
+        movq    %rdx,%rsi       # 점프 테이블 베이스 -> %rsi
+        movq    %rax,%rbx       # 스위치 값 -> %rbx
+        cld                     # 방향 플래그 초기화
+        lodsq                   # 케이스 개수를 %rcx에 로드,
+        movq    %rax,%rcx       # 로드 과정에서 %rsi 증가
 next:
-        lodsq                   # Get the case value into %rdx
+        lodsq                   # 케이스 값을 %rdx에 로드
         movq    %rax,%rdx
-        lodsq                   # and the label address into %rax
-        cmpq    %rdx,%rbx       # Does switch value matches the case?
-        jnz     no              # No, jump over this code
-        popq    %rsi            # Restore %rsi
-        jmp     *%rax           # and jump to the chosen case
+        lodsq                   # 라벨 주소를 %rax에 로드
+        cmpq    %rdx,%rbx       # 스위치 값과 케이스 값이 일치하는가?
+        jnz     no              # 아니면, 이 코드를 건너뜀
+        popq    %rsi            # %rsi 복원
+        jmp     *%rax           # 선택된 케이스로 점프
 no:
-        loop    next            # Loop for the number of cases
-        lodsq                   # Out of loop, load default label address
-        popq    %rsi            # Restore %rsi
-        jmp     *%rax           # and jump to the default case
+        loop    next            # 케이스 개수만큼 루프
+        lodsq                   # 루프 종료 후, 기본 라벨 주소 로드
+        popq    %rsi            # %rsi 복원
+        jmp     *%rax           # 기본 케이스로 점프
 ```
 
-We need to thanks Nils Holm for writing this, as I would never have arrived
-at this code!
+이 코드를 작성한 Nils Holm에게 감사해야 한다. 내가 이 코드를 직접 작성할 수 있었을 리 없다!
 
-Now we can look at how the above assembly code
-gets generated. Fortunately, we already have lots
-of useful functions in `cg.c` which we can reuse.
+이제 위 어셈블리 코드가 어떻게 생성되는지 살펴보자. 다행히 `cg.c` 파일에는 재사용할 수 있는 유용한 함수들이 이미 많이 있다.
 
-## Generating the Assembly Code
 
-In `genAST()` in `gen.c`, up near the top we identify an A_SWITCH
-node and call a function to deal with this node and the tree below it.
+## 어셈블리 코드 생성하기
+
+`gen.c` 파일의 `genAST()` 함수 상단에서 A_SWITCH 노드를 식별하고, 이 노드와 그 아래의 트리를 처리하기 위해 함수를 호출한다.
 
 ```c
     case A_SWITCH:
       return (genSWITCH(n));
 ```
 
-So let's look at this new function in stages:
+이제 이 새로운 함수를 단계별로 살펴보자.
 
 ```c
-// Generate the code for a SWITCH statement
+// SWITCH 문을 위한 코드 생성
 static int genSWITCH(struct ASTnode *n) {
   int *caseval, *caselabel;
   int Ljumptop, Lend;
   int i, reg, defaultlabel = 0, casecount = 0;
   struct ASTnode *c;
 
-  // Create arrays for the case values and associated labels.
-  // Ensure that we have at least one position in each array.
+  // case 값과 관련된 레이블을 위한 배열 생성.
+  // 각 배열에 최소 하나의 위치가 있도록 보장한다.
   caseval = (int *) malloc((n->intvalue + 1) * sizeof(int));
   caselabel = (int *) malloc((n->intvalue + 1) * sizeof(int));
 ```
 
-The reason for the `+1` here is that we may have a default
-case which needs a label even though it doesn't have a
-case value.
+여기서 `+1`을 사용하는 이유는 기본 case가 있더라도 case 값이 없더라도 레이블이 필요하기 때문이다.
 
 ```c
-  // Generate labels for the top of the jump table, and the
-  // end of the switch statement. Set a default label for
-  // the end of the switch, in case we don't have a default.
+  // 점프 테이블 상단과 switch 문의 끝을 위한 레이블 생성.
+  // 기본적으로 switch의 끝을 위한 레이블을 설정한다.
   Ljumptop = genlabel();
   Lend = genlabel();
   defaultlabel = Lend;
 ```
 
-These labels are made but not output as assembly yet.
-Until we have a default label, we set it to `Lend`.
+이 레이블들은 생성되었지만 아직 어셈블리 코드로 출력되지는 않았다. 기본 레이블이 없을 경우 `Lend`로 설정한다.
 
 ```c
-  // Output the code to calculate the switch condition
+  // switch 조건을 계산하기 위한 코드 출력
   reg = genAST(n->left, NOLABEL, NOLABEL, NOLABEL, 0);
   cgjump(Ljumptop);
   genfreeregs();
 ```
 
-We output the code to jump to the code after the
-jump table even though it hasn't been output. We can
-also free all the registers at this point.
+점프 테이블 이후의 코드로 점프하기 위한 코드를 출력한다. 아직 출력되지 않았지만 이 시점에서 모든 레지스터를 해제할 수 있다.
 
 ```c
-  // Walk the right-child linked list to
-  // generate the code for each case
+  // 오른쪽 자식 연결 리스트를 순회하며 각 case에 대한 코드 생성
   for (i = 0, c = n->right; c != NULL; i++, c = c->right) {
 
-    // Get a label for this case. Store it
-    // and the case value in the arrays.
-    // Record if it is the default case.
+    // 이 case를 위한 레이블을 가져온다. 배열에 레이블과 case 값을 저장한다.
+    // 기본 case인지 기록한다.
     caselabel[i] = genlabel();
     caseval[i] = c->intvalue;
     cglabel(caselabel[i]);
@@ -488,63 +366,49 @@ also free all the registers at this point.
     else
       casecount++;
 
-    // Generate the case code. Pass in the end label for the breaks
+    // case 코드 생성. break를 위한 끝 레이블을 전달한다.
     genAST(c->left, NOLABEL, NOLABEL, Lend, 0);
     genfreeregs();
   }
 ```
 
-This is the code that both generates the label for each case
-and also outputs the assembly code which is the body of the
-case. We store the case value and the case label in the two
-arrays. And, if this is the default case, we can update
-`defaultlabel` with the correct label.
+이 코드는 각 case에 대한 레이블을 생성하고, case 본문에 해당하는 어셈블리 코드를 출력한다. 두 배열에 case 값과 case 레이블을 저장한다. 그리고 이 case가 기본 case라면 `defaultlabel`을 올바른 레이블로 업데이트한다.
 
-Also note that `genAST()` gets passed `Lend` which is the
-label after our 'switch' code. This allows any `break;`
-in the case body to jump out to what comes next.
+또한 `genAST()`에 `Lend`를 전달하는데, 이는 switch 코드 이후의 레이블이다. 이를 통해 case 본문의 `break;`가 다음으로 넘어갈 수 있게 한다.
 
 ```c
-  // Ensure the last case jumps past the switch table
+  // 마지막 case가 switch 테이블을 지나가도록 보장
   cgjump(Lend);
 
-  // Now output the switch table and the end label.
+  // 이제 switch 테이블과 끝 레이블을 출력한다.
   cgswitch(reg, casecount, Ljumptop, caselabel, caseval, defaultlabel);
   cglabel(Lend);
   return (NOREG);
 }
 ```
 
-We can't rely on the programmer to end their last case
-with a `break;'` statement, so we force the last case to
-have a jump to the end of the switch statement.
+프로그래머가 마지막 case를 `break;`로 끝낼 것이라고 가정할 수 없으므로, 마지막 case가 switch 문의 끝으로 점프하도록 강제한다.
 
-At this point we have:
+이 시점에서 우리는 다음을 가지고 있다:
 
- + the register which has the switch value
- + the array of case values
- + the array of case labels
- + the number of cases
- + some useful labels
+ + switch 값을 가진 레지스터
+ + case 값 배열
+ + case 레이블 배열
+ + case 개수
+ + 유용한 레이블들
 
-We pass all of these into `cgswitch()` in `cg.c`,
-and (apart from the code from SubC) this is the only new
-assembly code we need to introduce for this part.
+이 모든 것을 `cg.c`의 `cgswitch()`에 전달하며, (SubC의 코드를 제외하고) 이 부분에 필요한 새로운 어셈블리 코드는 이것뿐이다.
+
 
 ## `cgswitch()`
 
-Here, we need to build the jump table and
-load the registers so that we can jump to
-the `switch` assembly code. As a reminder,
-here is the jump table structure:
+여기서는 점프 테이블을 구성하고 레지스터를 로드하여 `switch` 어셈블리 코드로 점프할 수 있도록 해야 한다. 점프 테이블 구조를 다시 한번 상기해 보자:
 
- + First is the number of cases with integer values
- + Next is a set of value/label pairs, one for each case
- + Finally there is the label of the default case. If there is
-   no default case, this has to be the label of the 'switch' end,
-   so that we do no code if there is no matching case.
+ + 첫 번째는 정수 값을 가진 케이스의 수다.
+ + 다음은 각 케이스에 대한 값/레이블 쌍이다.
+ + 마지막은 기본 케이스의 레이블이다. 기본 케이스가 없으면 'switch'의 끝을 가리키는 레이블이어야 한다. 이렇게 하면 일치하는 케이스가 없을 때 코드가 실행되지 않는다.
 
-For our example, the jump table looks like:
+예제에서 점프 테이블은 다음과 같다:
 
 ```
 L14:                                    # Switch jump table
@@ -555,26 +419,23 @@ L14:                                    # Switch jump table
         .quad   L13                     # default: jump to L13
 ```
 
-Here is how we generate all of this.
-
+이제 이 모든 것을 생성하는 방법을 살펴보자.
 
 ```c
-// Generate a switch jump table and the code to
-// load the registers and call the switch() code
+// switch 점프 테이블과 레지스터를 로드하고 switch() 코드를 호출하는 코드를 생성한다.
 void cgswitch(int reg, int casecount, int toplabel,
               int *caselabel, int *caseval, int defaultlabel) {
   int i, label;
 
-  // Get a label for the switch table
+  // switch 테이블을 위한 레이블을 가져온다.
   label = genlabel();
   cglabel(label);
 ```
 
-This is the `L14:` above.
+이 부분이 위의 `L14:`에 해당한다.
 
 ```c
-  // Heuristic. If we have no cases, create one case
-  // which points to the default case
+  // 휴리스틱. 케이스가 없으면 기본 케이스를 가리키는 하나의 케이스를 생성한다.
   if (casecount == 0) {
     caseval[0] = 0;
     caselabel[0] = defaultlabel;
@@ -582,24 +443,20 @@ This is the `L14:` above.
   }
 ```
 
-We must have at least one case value/label
-pair in the jump table. This code makes one
-that points at the default case. The case
-value is irrelevant: if it matches, fine. If
-not, we jump to the default case anyway.
+점프 테이블에는 최소한 하나의 값/레이블 쌍이 있어야 한다. 이 코드는 기본 케이스를 가리키는 하나의 케이스를 만든다. 케이스 값은 중요하지 않다. 일치하면 좋고, 그렇지 않으면 어차피 기본 케이스로 점프한다.
 
 ```c
-  // Generate the switch jump table.
+  // switch 점프 테이블을 생성한다.
   fprintf(Outfile, "\t.quad\t%d\n", casecount);
   for (i = 0; i < casecount; i++)
     fprintf(Outfile, "\t.quad\t%d, L%d\n", caseval[i], caselabel[i]);
   fprintf(Outfile, "\t.quad\tL%d\n", defaultlabel);
 ```
 
-Here is the code to generate the jump table. Nice and easy.
+이 코드는 점프 테이블을 생성한다. 간단하고 명확하다.
 
 ```c
-  // Load the specific registers
+  // 특정 레지스터를 로드한다.
   cglabel(toplabel);
   fprintf(Outfile, "\tmovq\t%s, %%rax\n", reglist[reg]);
   fprintf(Outfile, "\tleaq\tL%d(%%rip), %%rdx\n", label);
@@ -607,15 +464,12 @@ Here is the code to generate the jump table. Nice and easy.
 }
 ```
 
-Finally, load the `%rax` register with the switch
-value, load `%rdx` with the label of the jump table
-and call the `switch` code.
+마지막으로, `%rax` 레지스터에 switch 값을 로드하고, `%rdx`에 점프 테이블의 레이블을 로드한 후 `switch` 코드를 호출한다.
 
-## Testing The Code
 
-I've augmented our example with a loop so that all
-cases in the 'switch' statement get tested This is
-the file `tests/input74.c`:
+## 코드 테스트
+
+'switch' 문의 모든 케이스를 테스트할 수 있도록 예제에 루프를 추가했다. 다음은 `tests/input74.c` 파일의 내용이다:
 
 ```c
 #include <stdio.h>
@@ -638,7 +492,7 @@ int main() {
 }
 ```
 
-And here is the output from the program:
+이 프로그램의 출력 결과는 다음과 같다:
 
 ```
 100
@@ -648,23 +502,15 @@ And here is the output from the program:
 100
 ```
 
-Note that the value 9 is not output, because we
-fall into the default case when we are doing case 3.
+여기서 값 9가 출력되지 않는 이유는 case 3에서 default 케이스로 넘어가기 때문이다.
 
-## Conclusion and What's Next
 
-We've just implemented our first really big new statement in
-our compiler, the 'switch' statement. As I've never done this
-before, I essentially followed the SubC implementation. There
-are many other, more efficient, ways to implement 'switch',
-but I applied the "KISS principle" here. That said, it still
-was quite a complicated implementation.
+## 결론 및 다음 단계
 
-If you are still reading at this point, congratulations on
-your staying power!
+우리는 방금 컴파일러에 'switch' 문이라는 첫 번째 큰 문법을 구현했다. 이전에 해본 적이 없어서 기본적으로 SubC 구현 방식을 따랐다. 'switch'를 구현하는 더 효율적인 방법이 많지만, 여기서는 "KISS 원칙"을 적용했다. 그럼에도 불구하고 꽤 복잡한 구현이었다.
 
-I'm starting to get annoyed with the compulsory '{' ... '}'
-around all of our compound statements.
-So, in the next part of our compiler writing journey, 
-I will bite the bullet and attempt to solve the "dangling else"
-problem. [Next step](../38_Dangling_Else/Readme.md)
+여기까지 읽고 있다면, 여러분의 끈기를 칭찬한다!
+
+이제는 모든 복합 문장에 필수로 '{' ... '}'를 사용해야 하는 점이 점점 불편해지고 있다. 그래서 컴파일러 작성 여정의 다음 단계에서는 "dangling else" 문제를 해결해 보려고 한다. [다음 단계](../38_Dangling_Else/Readme.md)
+
+

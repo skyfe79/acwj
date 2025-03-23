@@ -1,41 +1,33 @@
-# Part 33: Implementing Unions and Member Access
+# 33장. 유니온과 멤버 접근 구현하기
 
-Unions also turned out to be easy to implement for one reason: they are like
-structs except that all members of a union are located at offset zero from the base of
-the union. Also, the grammar of a union declaration is the same as a struct except
-for the "union" keyword.
+유니온을 구현하는 일은 생각보다 쉬웠다. 그 이유는 유니온이 구조체와 비슷하지만, 유니온의 모든 멤버가 유니온의 시작 지점에서 오프셋 0에 위치하기 때문이다. 또한 유니온 선언 문법은 "union" 키워드를 제외하면 구조체와 동일하다.
 
-This means that we can re-use and modify the existing structs code to deal with unions.
+이러한 특성 덕분에 기존에 구현한 구조체 코드를 재사용하고 수정하여 유니온을 처리할 수 있다.
 
-## A New Keyword: "union"
 
-I've added the "union" keyword and the T_UNION token to the scanner in `scan.c`.
-As always, I'll omit the code that does the scanning.
+## 새로운 키워드: "union"
 
-## The Union Symbol List
+`scan.c` 파일의 스캐너에 "union" 키워드와 T_UNION 토큰을 추가했다. 스캐닝을 수행하는 코드는 여기서 생략한다.
 
-As with structs, there is a singly-linked list to store unions (in `data.h`):
+
+## 유니온 심볼 리스트
+
+구조체와 마찬가지로, 유니온을 저장하기 위해 단일 연결 리스트를 사용한다(`data.h`에 정의됨):
 
 ```c
-extern_ struct symtable *Unionhead, *Uniontail;   // List of struct types
+extern_ struct symtable *Unionhead, *Uniontail;   // 유니온 타입 리스트
 ```
 
-In `sym.c`, I've also written `addunion()` and `findunion()` functions to
-add a new union type node to the list and to search for a union type with a given
-name on the list.
+`sym.c`에서는 새로운 유니온 타입 노드를 리스트에 추가하는 `addunion()` 함수와 주어진 이름으로 유니온 타입을 검색하는 `findunion()` 함수를 작성했다.
 
-> I'm considering merging the struct and union lists into a single composite type
-  list, but I haven't done it yet. I'll probably do it when I get around to some
-  more refactoring.
+> 구조체와 유니온 리스트를 하나의 복합 타입 리스트로 병합하는 것을 고려 중이지만, 아직 실행하지는 않았다. 리팩토링을 진행할 때 함께 처리할 계획이다.
 
-## Parsing Union Declarations
 
-We are going to modify the existing struct parsing code in `decl.c` to parse
-both structs and unions. I'll only give the changes to the functions, not the
-whole functions.
+## 유니온 선언 파싱
 
-In `parse_type()`, we now scan the T_UNION token and call the function to parse
-both struct and union types:
+기존의 구조체 파싱 코드를 수정하여 구조체와 유니온을 모두 파싱할 수 있도록 변경한다. 전체 함수가 아닌 변경된 부분만 설명한다.
+
+`parse_type()` 함수에서 이제 T_UNION 토큰을 스캔하고, 구조체와 유니온 타입을 모두 파싱하는 함수를 호출한다:
 
 ```c
   case T_STRUCT:
@@ -48,61 +40,25 @@ both struct and union types:
     break;
 ```
 
-This function `composite_declaration()` was called `struct_declaration()` in the
-last part of our journey. It now takes the type that we are parsing.
+이 `composite_declaration()` 함수는 이전에 `struct_declaration()`으로 불렸던 함수이다. 이제 파싱할 타입을 인자로 받는다.
 
-## The `composite_declaration()` Function
-
-Here are the changes:
 
 ```c
-// Parse composite type declarations: structs or unions.
-// Either find an existing struct/union declaration, or build
-// a struct/union symbol table entry and return its pointer.
-static struct symtable *composite_declaration(int type) {
-  ...
-  // Find any matching composite type
-  if (type == P_STRUCT)
-    ctype = findstruct(Text);
-  else
-    ctype = findunion(Text);
-  ...
-  // Build the composite type and skip the left brace
-  if (type == P_STRUCT)
-    ctype = addstruct(Text, P_STRUCT, NULL, 0, 0);
-  else
-    ctype = addunion(Text, P_UNION, NULL, 0, 0);
-  ...
-  // Set the position of each successive member in the composite type
-  // Unions are easy. For structs, align the member and find the next free byte
-  for (m = m->next; m != NULL; m = m->next) {
-    // Set the offset for this member
-    if (type == P_STRUCT)
-      m->posn = genalign(m->type, offset, 1);
-    else
-      m->posn = 0;
-
-    // Get the offset of the next free byte after this member
-    offset += typesize(m->type, m->ctype);
-  }
-  ...
-  return (ctype);
-}
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdio.h>
 ```
 
-That's it. We simply change the symbol table list we are working on, and
-always set the member offset to zero for unions. This is why I think it
-would be worth merging the struct and union type lists into a single list.
 
-## Parsing Union Expressions
+## 유니온 표현식 파싱
 
-As with the union declarations, we can reuse the code that deals with
-structs in expressions. In fact, there are very few changes to make in `expr.c`.
+유니온 선언과 마찬가지로, 표현식에서 구조체를 다루는 코드를 재사용할 수 있다. 실제로 `expr.c` 파일에서는 거의 변경할 부분이 없다.
 
 ```c
-// Parse the member reference of a struct or union
-// and return an AST tree for it. If withpointer is true,
-// the access is through a pointer to the member.
+// 구조체나 유니온의 멤버 참조를 파싱하고 AST 트리를 반환한다.
+// withpointer가 true면, 멤버에 대한 접근은 포인터를 통해 이뤄진다.
 static struct ASTnode *member_access(int withpointer) {
   ...
   if (withpointer && compvar->type != pointer_to(P_STRUCT)
@@ -112,13 +68,10 @@ static struct ASTnode *member_access(int withpointer) {
     fatals("Undeclared variable", Text);
 ```
 
-Again, that's it. The rest of the code was generic enough that we can use it for
-unions unmodified. And I think there was only one other major change, which was
-to a function in `types.c`:
+이것이 전부다. 나머지 코드는 충분히 일반적이어서 유니온에도 그대로 사용할 수 있다. 주요 변경 사항은 `types.c` 파일의 한 함수뿐이다:
 
 ```c
-// Given a type and a composite type pointer, return
-// the size of this type in bytes
+// 타입과 복합 타입 포인터를 받아, 이 타입의 크기를 바이트 단위로 반환한다.
 int typesize(int type, struct symtable *ctype) {
   if (type == P_STRUCT || type == P_UNION)
     return (ctype->size);
@@ -126,9 +79,10 @@ int typesize(int type, struct symtable *ctype) {
 }
 ```
 
-## Testing the Union Code
 
-Here's our test program, `test/input62.c`:
+## 유니온 코드 테스트
+
+다음은 테스트 프로그램 `test/input62.c`의 내용이다:
 
 ```c
 int printf(char *fmt);
@@ -156,11 +110,11 @@ int main() {
 }
 ```
 
-This tests that all four members in the union are at the same location, so that
-a change to one member is seen as the same change to all members. We also check
-that pointer access into a union also works.
+이 코드는 유니온의 네 멤버가 모두 동일한 위치에 있는지 확인한다. 즉, 하나의 멤버를 변경하면 다른 모든 멤버에도 동일한 변경이 반영되는지 테스트한다. 또한 유니온에 대한 포인터 접근이 제대로 동작하는지도 확인한다.
 
-## Conclusion and What's Next
 
-This was another nice and easy part of our compiler writing journey.
-In the next part of our compiler writing journey, we will add enums. [Next step](../34_Enums_and_Typedefs/Readme.md)
+## 결론 및 다음 단계
+
+이번 장은 컴파일러 작성 여정에서 또 다른 간단하고 쉬운 부분이었다. 다음 단계에서는 열거형(enum)을 추가할 예정이다. [다음 단계](../34_Enums_and_Typedefs/Readme.md)
+
+

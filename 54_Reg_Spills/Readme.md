@@ -1,149 +1,83 @@
-# Part 54: Spilling Registers
+# 54부: 레지스터 스필링
 
-I've been putting off dealing with
-[register spilling](https://en.wikipedia.org/wiki/Register_allocation#Spilling)
-for a while because I knew the issue was going to be thorny. I think what I've
-done here is a first cut at the problem. It's naive, but it is a start.
+나는 한동안 [레지스터 스필링](https://en.wikipedia.org/wiki/Register_allocation#Spilling) 문제를 미뤄왔다. 이 문제가 까다로울 거라는 걸 알고 있었기 때문이다. 지금까지 한 작업은 이 문제에 대한 첫 번째 접근이다. 단순하지만, 시작은 했다.
 
-## The Issues
 
-Registers are a limited commodity in most CPUs. They are the fastest
-storage units, and we use them to hold temporary results while we
-evaluate expressions. Once we have stored a result into a more permanent
-location (e.g. a memory location which represents a variable) we can
-free the in-use registers and re-use them.
+## 문제점
 
-Once we hit expressions of large complexity we run out of enough registers
-to hold the intermediate results, and this prevents us from evaluating the
-expression.
+대부분의 CPU에서 레지스터는 제한된 자원이다. 레지스터는 가장 빠른 저장 장치로, 표현식을 평가하는 동안 임시 결과를 저장하는 데 사용한다. 결과를 더 영구적인 위치(예: 변수를 나타내는 메모리 위치)에 저장한 후에는 사용 중인 레지스터를 해제하고 재사용할 수 있다.
 
-At present the compiler can allocate up to four registers. Yes, I know this
-is a bit artificial; however, there will always be an expression so complex
-that it can't be evaluated with a fixed number of registers.
+하지만 복잡한 표현식을 다루다 보면 중간 결과를 저장할 레지스터가 부족해지고, 이로 인해 표현식을 평가할 수 없게 된다.
 
-Consider this expression, and remember the order of precedence of the C
-operators:
+현재 컴파일러는 최대 4개의 레지스터를 할당할 수 있다. 물론 이는 다소 인위적인 제한이지만, 고정된 수의 레지스터로는 평가할 수 없는 복잡한 표현식이 항상 존재할 것이다.
+
+다음 표현식을 살펴보고, C 연산자의 우선순위를 기억해 보자:
 
 ```c
   int x= 5 || 6 && 7 | 8 & 9 << 2 + 3 * 4;
 ```
 
-Each operator on the right has higher precedence that the one on its left.
-Thus, we need to store 5 into a register, but then evaluate the rest of the
-expression. Now we store 6 into a register, and ditto. Now, 7 in a register
-and ditto. Now 8 in a register and ditto.
+오른쪽에 있는 각 연산자는 왼쪽에 있는 연산자보다 우선순위가 높다. 따라서 5를 레지스터에 저장한 후 나머지 표현식을 평가해야 한다. 이어서 6을 레지스터에 저장하고, 7, 8도 마찬가지로 저장한다. 이제 9를 레지스터에 로드해야 하지만, 이미 4개의 레지스터가 모두 할당된 상태다. 실제로 이 표현식을 평가하려면 추가로 4개의 레지스터가 필요하다. 이 문제를 어떻게 해결할 수 있을까?
 
-Oops! We now need to load 9 into a register, but all four registers are
-allocated. In fact, we'll need to allocate another *four* registers to
-evaluate this expression. What is the solution?
+해결책은 레지스터를 메인 메모리의 어딘가에 **스필(spill)**하여 레지스터를 확보하는 것이다. 하지만 스필된 레지스터를 필요할 때 다시 로드해야 하므로, 해당 레지스터가 다시 사용 가능한 상태가 되어야 한다.
 
-The solution is to 
-[spill registers](https://en.wikipedia.org/wiki/Register_allocation#Spilling)
-somewhere in main memory so that we free up a register. However, we also need
-to reload the spilled register at the point when we need it; this means
-that it must now be free to have its old value reloaded.
+즉, 레지스터를 스필할 수 있는 기능뿐만 아니라 어떤 레지스터가 언제 스필되었는지 추적하고 필요할 때 다시 로드하는 기능도 필요하다. 이는 까다로운 작업이다. 위의 외부 링크를 통해 최적의 레지스터 할당과 스필에 대한 이론이 많다는 것을 알 수 있다. 여기서는 그 이론을 다루지 않고, 간단한 해결책을 구현한 후 독자들이 이론을 바탕으로 코드를 개선할 기회를 제공할 것이다.
 
-So, we need not only the ability to spill registers somewhere but also
-track which ones were spilled and when, and reload them as needed. It's
-tricky. You can see by the external link above that there is a tonne of
-theory behind optimal register allocation and spilling. This isn't going to
-be the place for that theory. I'll implement a simple solution and leave
-you the opportunity to improve the code based on the theory!
+그렇다면 레지스터는 어디에 스필될까? 임의의 크기로 **메모리 힙**을 할당하고 모든 스필된 레지스터를 여기에 저장할 수 있다. 그러나 대부분의 레지스터 스필 구현에서는 기존 스택을 사용한다. 그 이유는 무엇일까?
 
-Now, where do registers get spilled? We could allocate an arbitrary sized
-[memory heap](https://en.wikipedia.org/wiki/Memory_management#Dynamic_memory_allocation) and store all the spilled registers here. Generally, though, most
-register spill implementations use the existing stack. Why?
+그 이유는 스택에는 이미 하드웨어에서 정의된 빠른 **푸시(push)**와 **팝(pop)** 연산이 있기 때문이다. 또한 일반적으로 운영체제가 스택 크기를 무한히 확장할 수 있다고 믿을 수 있다. 게다가 스택을 함수별로 스택 프레임으로 나누기 때문에 함수가 끝나면 단순히 스택 포인터를 이동시키면 되고, 스필된 레지스터를 팝하지 않아도 된다.
 
-The answers are that we already have hardware-defined *push* and *pop*
-operations on the stack which are quick. We can (usually) rely on the
-operating system extending the stack size indefinitely. Also, we divide our
-stack up into stack frames, one per function. At the end of a function we
-can simply move the stack pointer, and we don't have to worry about popping
-off any registers that we spilled and somehow forgot about.
+이 컴파일러에서는 스택을 사용해 레지스터를 스필할 것이다. 이제 스필과 스택 사용의 의미를 살펴보자.
 
-I'm going to use the stack for spilling registers in our compiler. 
-Let's look at the implications of spilling and of using the stack.
 
-## The Implications
+## 레지스터 스필링의 함의
 
-To do register spilling, we need the ability to:
+레지스터 스필링을 구현하기 위해 다음 기능이 필요하다:
 
- + Choose and spill one register's value when we need to allocate a register
-   and none are free. It will be pushed on to the stack.
- + Reload the spilled register's value fron the stack when we need it.
- + Ensure that the register is free at the point when we need to reload
-   its value.
- + Before a function call, we need to spill all in-use registers. This is
-   because a function call is an expression. We need to be able to do
-   `2 + 3 * fred(4,5) - 7`, and still have the 2 and 3 in registers once
-   the function returns with its value.
- + Thus, we need to reload all the registers that we spilled before a
-   function call.
++ 레지스터를 할당해야 하는데 사용 가능한 레지스터가 없는 경우, 하나의 레지스터 값을 선택해 스택으로 스필링한다. 이 값은 스택에 푸시된다.
++ 스필링된 레지스터 값이 필요할 때, 스택에서 해당 값을 다시 로드한다.
++ 레지스터 값을 다시 로드해야 하는 시점에 해당 레지스터가 반드시 비어 있어야 한다.
++ 함수 호출 전, 사용 중인 모든 레지스터를 스필링해야 한다. 함수 호출은 표현식의 일부이기 때문이다. 예를 들어 `2 + 3 * fred(4,5) - 7` 같은 표현식을 처리할 때, 함수가 값을 반환한 후에도 2와 3이 여전히 레지스터에 남아 있어야 한다.
++ 따라서 함수 호출 전에 스필링한 모든 레지스터를 다시 로드해야 한다.
 
-The above is what we need, regardless of the mechanism. Now let's bring
-the stack in and see how it will constrain us.
+위 사항들은 메커니즘과 상관없이 필수적으로 요구되는 기능들이다. 이제 스택을 고려해보자.
 
-If we can only push a register's value on the stack to spill it, and pop a
-register's value from the stack, this implies that we have to reload
-registers in the reverse order in which we spilled them on the stack.
-Is this something that we can guarantee? In other words, will we ever need
-to reload a register out of order? If so, the stack isn't going to be
-the mechanism that we need. Alternatively, can we write our compiler
-to ensure that the registers reload in reverse spill order?
+만약 레지스터 값을 스필링할 때 스택에 푸시하고, 다시 로드할 때 스택에서 팝하는 방식만 사용한다면, 스필링한 순서의 역순으로 레지스터를 다시 로드해야 한다. 이런 순서를 보장할 수 있을까? 다시 말해, 레지스터를 순서대로 다시 로드하지 않아야 하는 상황이 발생할까? 그렇다면 스택은 적합한 메커니즘이 아니다. 아니면 컴파일러를 설계해 스필링 순서의 역순으로 레지스터를 로드하도록 할 수 있을까?
 
-## Some Optimisations
 
-If you have read the external link above, or you know something about
-register allocation already, then you know there are so many ways we
-can optimise register allocation and spilling. You probably know much
-more than I do, so don't giggle too much in the next section.
+## 몇 가지 최적화 방법
 
-When we call a function, not all of our registers will be allocated
-already. Also, some registers will be used to hold some of the
-argument values for the function. Also, the function will likely
-return a value and hence destroy a register. Thus, we don't have to
-spill all of our registers onto the stack before we do a function call.
-If we were clever, we could work out which registers have to be spilled
-and only spill these ones.
+위의 외부 링크를 읽어봤거나 레지스터 할당에 대해 이미 알고 있다면, 레지스터 할당과 스필링을 최적화할 수 있는 방법이 매우 많다는 것을 알 것이다. 아마도 여러분은 내가 아는 것보다 훨씬 더 많은 것을 알고 있을 테니, 다음 섹션에서 너무 웃지 말길 바란다.
 
-We can even take a step back and rewrite the AST tree to ease the pressure
-on our expression evaluation. For example, we could use a form of
-[strength reduction](https://en.wikipedia.org/wiki/Strength_reduction)
-to lower the number of registers allocated.
+함수를 호출할 때, 모든 레지스터가 이미 할당되어 있지는 않다. 또한 일부 레지스터는 함수의 인자 값을 저장하는 데 사용될 것이다. 게다가 함수는 값을 반환할 것이므로 하나의 레지스터를 파괴할 것이다. 따라서 함수 호출 전에 모든 레지스터를 스택에 스필링할 필요는 없다. 만약 우리가 똑똑하다면, 어떤 레지스터가 스필링되어야 하는지 파악하고 해당 레지스터만 스필링할 수 있다.
 
-Consider the expression:
+더 나아가 AST 트리를 다시 작성하여 표현식 평가의 부담을 줄일 수도 있다. 예를 들어, [강도 감소](https://en.wikipedia.org/wiki/Strength_reduction) 기법을 사용하여 할당되는 레지스터의 수를 줄일 수 있다.
+
+다음 표현식을 고려해 보자:
 
 ```c
   2 + (3 + (4 + (5 + (6 + (7 + 8)))))
 ```
 
-The way it is written, we would have to load 2 into a register, start to
-evaluate the rest, load 3 into a register and ditto. We would end up with
-seven register allocations.
+이렇게 작성된 경우, 2를 레지스터에 로드하고 나머지를 평가하기 시작한 다음, 3을 레지스터에 로드하는 식으로 진행할 것이다. 결국 일곱 개의 레지스터 할당이 필요하게 된다.
 
-However, addition is *commutative*, and therefore we can re-visualise the above
-expression as:
+그러나 덧셈은 *교환 법칙*이 성립하기 때문에 위의 표현식을 다음과 같이 다시 표현할 수 있다:
 
 ```c
   ((((2 + 3) + 4) + 5) + 6) + 7
 ```
 
-Now we can evaluate `2+3` and put it into a register, add on `4` and still
-only need one register, etc. This is something that the
-[SubC](http://www.t3x.org/subc/) compiler does with its AST trees, and it
-is something that I'll implement later.
+이제 `2+3`을 평가하고 이를 레지스터에 넣은 다음, `4`를 더해도 여전히 하나의 레지스터만 필요하게 된다. 이는 [SubC](http://www.t3x.org/subc/) 컴파일러가 AST 트리를 다루는 방식이며, 나중에 이를 구현할 예정이다.
 
-But for now, no optimisations. In fact, the spilling code is going to
-produce some pretty bad assembly. But at least the assembly that it
-produces works. Remember, "*premature optimisation is the root of all
-evil*" -- Donald Knuth.
+하지만 지금은 최적화를 하지 않을 것이다. 사실, 스필링 코드는 상당히 낮은 품질의 어셈블리를 생성할 것이다. 하지만 적어도 생성된 어셈블리는 동작한다. "**조기 최적화는 모든 악의 근원이다**"라는 도널드 크누스의 말을 기억하자.
 
-## The Nuts and Bolts
 
-Let's start with the most primitive new functions in `cg.c`:
+## 기본 개념 이해하기
+
+`cg.c` 파일에서 가장 기본적인 새로운 함수부터 살펴보자:
 
 ```c
-// Push and pop a register on/off the stack
+// 스택에 레지스터를 push하고 pop하는 함수
 static void pushreg(int r) {
   fprintf(Outfile, "\tpushq\t%s\n", reglist[r]);
 }
@@ -153,43 +87,35 @@ static void popreg(int r) {
 }
 ```
 
-We can use these to spill and reload a register on the stack. Note that I
-didn't call them `spillreg()` and `reloadreg()`. They are general-purpose
-and we might use them for something else later.
+이 함수들은 스택에 레지스터를 저장하거나 다시 불러오는 데 사용할 수 있다. 여기서 `spillreg()`나 `reloadreg()` 같은 이름을 사용하지 않은 이유는 이 함수들이 특정 목적에 국한되지 않고, 나중에 다른 용도로도 활용될 수 있기 때문이다.
 
-## The `spillreg`
 
-Next up is a new static variable in `cg.c`:
+## `spillreg` 변수
+
+다음은 `cg.c` 파일에 새로 추가된 정적 변수이다:
 
 ```c
 static int spillreg=0;
 ```
 
-This is the next register that we will choose to spill on the stack. Each
-time we spill a register, we will increment `spillreg`. So it eventually
-will be 4, then 5, ... then 8, ... then 3002 etc.
+이 변수는 스택에 저장할 다음 레지스터를 선택하기 위해 사용한다. 레지스터를 스택에 저장할 때마다 `spillreg` 값을 증가시킨다. 따라서 이 값은 4, 5, ... 8, ... 3002 등으로 계속 증가할 것이다.
 
-Question: why not reset it to zero when we got past the maximum number of
-registers? The answer is that, when we pop registers from the stack, we
-need to know when to *stop* popping registers. If we had used modulo
-arithmetic, we would pop in a fixed cycle and not know when to stop.
+여기서 의문이 생길 수 있다: 최대 레지스터 수를 넘어가면 왜 0으로 리셋하지 않을까? 그 이유는 스택에서 레지스터를 꺼낼 때, 언제 멈춰야 하는지 알아야 하기 때문이다. 모듈로 연산을 사용했다면, 고정된 주기로 레지스터를 꺼내게 되고 멈출 시점을 알 수 없을 것이다.
 
-That said, we must only spill registers from 0 to `NUMFREEREGS-1`, so we
-will do some modulo arithmetic in the following code.
+그러나 0부터 `NUMFREEREGS-1`까지의 레지스터만 스택에 저장해야 하므로, 다음 코드에서는 모듈로 연산을 사용할 것이다.
 
-## Spilling One Register
 
-We spill a register when there are no free registers. We will choose
-the `spillreg` (modulo NUMFREEREGS) register to spill. In the 
-`alloc_register()` function in `cg.c`:
+## 레지스터를 스필링하기
+
+사용 가능한 레지스터가 없을 때, 레지스터를 스필링한다. `spillreg` (NUMFREEREGS로 나눈 나머지) 레지스터를 스필링할 레지스터로 선택한다. `cg.c`의 `alloc_register()` 함수에서 이 작업을 수행한다:
 
 ```c
 int alloc_register(void) {
   int reg;
 
-  // Try to allocate a register but fail
+  // 레지스터 할당을 시도하지만 실패
   ...
-  // We have no registers, so we must spill one
+  // 사용 가능한 레지스터가 없으므로 하나를 스필링해야 함
   reg= (spillreg % NUMFREEREGS);
   spillreg++;
   fprintf(Outfile, "# spilling reg %d\n", reg);
@@ -198,48 +124,38 @@ int alloc_register(void) {
 }
 ```
 
-We choose `spillreg % NUMFREEREGS` as the register to spill, and we
-`pushreg(reg)` to do so. We increment `spillreg` to be the next register to
-spill, and we return the newly spilled register number as that is now free.
-I also have a debug statement in there which I'll remove later.
+`spillreg % NUMFREEREGS`를 스필링할 레지스터로 선택하고, `pushreg(reg)`를 호출해 스필링을 수행한다. 다음에 스필링할 레지스터를 위해 `spillreg`를 증가시키고, 새로 스필링된 레지스터 번호를 반환한다. 이제 해당 레지스터는 사용 가능한 상태가 된다. 디버깅을 위한 출력문도 포함되어 있는데, 나중에 제거할 예정이다.
 
-## Reloading One Register
 
-We can only reload a register when a) it becomes free and b) its the
-most recent register that was spilled onto the stack. Here is where
-we insert an implicit assumption into our code: we must always reload
-the most recently-spilled register. We had better make sure that the
-compiler can keep this promise.
+## 레지스터 하나만 다시 로드하기
 
-The new code in `free_register()` in `cg.c` is:
+레지스터를 다시 로드할 수 있는 경우는 두 가지다: a) 레지스터가 비워졌을 때, b) 스택에 가장 최근에 저장된 레지스터일 때. 여기서 우리는 코드에 암묵적인 가정을 추가한다: 항상 가장 최근에 저장된 레지스터를 다시 로드해야 한다. 컴파일러가 이 약속을 지킬 수 있도록 주의해야 한다.
+
+`cg.c` 파일의 `free_register()` 함수에 추가된 새로운 코드는 다음과 같다:
 
 ```c
 static void free_register(int reg) {
   ...
-  // If this was a spilled register, get it back
+  // 이 레지스터가 스택에 저장된 경우, 다시 가져온다
   if (spillreg > 0) {
     spillreg--;
     reg= (spillreg % NUMFREEREGS);
     fprintf(Outfile, "# unspilling reg %d\n", reg);
     popreg(reg);
-  } else        // Simply free the in-use register
+  } else        // 단순히 사용 중인 레지스터를 비운다
   ...
 }
 ```
 
-We simply undo the most recent spill, and decrement `spillreg`. Note that
-this is why we didn't store `spillreg` with a modulo value. Once it hits
-zero, we know that there are no spilled registers on the stack and there
-is no point in trying to pop a register value from the stack.
+가장 최근에 저장된 레지스터를 다시 로드하고, `spillreg` 값을 감소시킨다. 이전에 `spillreg`를 모듈로 연산 없이 저장한 이유가 여기에 있다. `spillreg`가 0이 되면 스택에 저장된 레지스터가 더 이상 없으며, 스택에서 레지스터 값을 꺼내려고 시도할 필요가 없다.
 
-## Register Spills Before a Function Call
 
-As I mentioned before, a clever compiler would determine which registers
-*had* to be spilled before a function call. This is not a clever
-compiler, and so we have these new functions:
+## 함수 호출 전 레지스터 일괄 저장
+
+앞서 언급했듯이, 똑똑한 컴파일러라면 함수 호출 전에 반드시 저장해야 할 레지스터를 정확히 판단할 것이다. 하지만 여기서 다루는 컴파일러는 그렇지 않기 때문에, 다음과 같은 새로운 함수를 추가했다:
 
 ```c
-// Spill all registers on the stack
+// 모든 레지스터를 스택에 저장
 void spill_all_regs(void) {
   int i;
 
@@ -247,7 +163,7 @@ void spill_all_regs(void) {
     pushreg(i);
 }
 
-// Unspill all registers from the stack
+// 스택에서 모든 레지스터를 복원
 static void unspill_all_regs(void) {
   int i;
 
@@ -256,41 +172,33 @@ static void unspill_all_regs(void) {
 }
 ```
 
-At this point, while you are either laughing or crying (or both), I'll
-remind you of a Ken Thompson quote: "*When in doubt, use brute force.*"
+이 코드를 보면 웃을지 울지 모르겠지만, 켄 톰슨의 명언을 떠올려보자: "*의심스러울 땐 무식하게 밀어붙여라.*"
 
-## Keeping Our Assumptions Intact
 
-We have an implicit assumption built into this code: any reloaded register
-was the one last spilled. We had better check that this is the case.
+## 가정의 유지
 
-For binary expressions, `genAST()` in `gen.c` does this:
+이 코드에는 암묵적인 가정이 내재되어 있다. 다시 불러온 레지스터는 마지막으로 스필(spill)된 레지스터여야 한다는 점이다. 이 가정이 실제로 성립하는지 확인해야 한다.
+
+이진 표현식의 경우, `gen.c` 파일의 `genAST()` 함수는 다음과 같이 동작한다:
 
 ```c
-  // Get the left and right sub-tree values
+  // 왼쪽과 오른쪽 서브 트리의 값을 얻는다
   leftreg = genAST(n->left, NOLABEL, NOLABEL, NOLABEL, n->op);
   rightreg = genAST(n->right, NOLABEL, NOLABEL, NOLABEL, n->op);
 
   switch (n->op) {
-    // Do the specific binary operation
+    // 특정 이진 연산을 수행한다
   }
 ```
 
-We allocate the register for the left-hand expression first, then the
-register for the right-hand expression. If we have to spill
-registers, then the register for the right-hand expression will be the most
-recently-spilled register.
+왼쪽 표현식을 위한 레지스터를 먼저 할당한 다음, 오른쪽 표현식을 위한 레지스터를 할당한다. 레지스터를 스필해야 하는 경우, 오른쪽 표현식을 위한 레지스터가 가장 최근에 스필된 레지스터가 된다.
 
-Therefore, we had better *free* the register for the right-hand expression
-first, to ensure that any spilled value will get reloaded back into this
-register.
+따라서 오른쪽 표현식을 위한 레지스터를 먼저 해제해야 한다. 이렇게 하면 스필된 값이 이 레지스터로 다시 로드될 수 있다.
 
-I've gone through `cg.c` and made some modifications to the binary
-expression generators to do this. An example is `cgadd()` in `cg.c`:
+`cg.c` 파일을 검토하면서 이진 표현식 생성기를 수정했다. `cg.c` 파일의 `cgadd()` 함수가 그 예시다:
 
 ```c
-// Add two registers together and return
-// the number of the register with the result
+// 두 레지스터를 더하고 결과가 담긴 레지스터 번호를 반환한다
 int cgadd(int r1, int r2) {
   fprintf(Outfile, "\taddq\t%s, %s\n", reglist[r2], reglist[r1]);
   free_register(r2);
@@ -298,82 +206,70 @@ int cgadd(int r1, int r2) {
 }
 ```
 
-The code used to add into `r2`, free `r1` and return `r2`. Not good, but
-luckily addition is commutative. We can save the result in either register,
-so now `r1` returns the result and `r2` is freed. If if was spilled, it
-will get its old value back.
+이전 코드는 `r2`에 더하고 `r1`을 해제한 다음 `r2`를 반환했다. 이는 좋지 않은 방식이지만, 다행히 덧셈은 교환 법칙이 성립한다. 따라서 결과를 어느 레지스터에 저장해도 상관없다. 이제 `r1`이 결과를 반환하고 `r2`는 해제된다. `r2`가 스필되었다면 이전 값으로 복원된다.
 
-I *hope* that I've done this everywhere that is needed, and I *hope*
-that our assumption is not satisfied, but I'm not completely sure yet.
-We will have to do a lot of testing to be reasonably satisfied.
+필요한 모든 곳에서 이 작업을 수행했기를 바라고, 우리의 가정이 충족되기를 바라지만, 아직 완전히 확신할 수는 없다. 상당한 테스트를 거쳐야 어느 정도 안심할 수 있을 것이다.
 
-## Changes to Function Calls
 
-We now have the spill/reload nuts and bolts in place. For ordinary
-register allocations and frees, the above code will spill and reload
-as required. We also try to ensure that we free the most recently
-spilled register.
+## 함수 호출 변경 사항
 
-The last thing we need to do is spill the registers before a function call
-and reload them afterwards. There is a wrinkle: the function may be part of
-an expression. We need to:
+이제 레지스터 스필(Spill)과 리로드(Reload)에 대한 기본적인 메커니즘이 준비되었다. 일반적인 레지스터 할당과 해제의 경우, 위 코드는 필요에 따라 스필과 리로드를 수행한다. 또한 가장 최근에 스필된 레지스터를 해제하려고 노력한다.
 
-  1. Spill the registers first.
-  1. Copy the arguments to the function (using the registers).
-  1. Call the function.
-  1. Reload the registers before we
-  1. Copy the register's return value.
+마지막으로 해야 할 일은 함수 호출 전에 레지스터를 스필하고, 호출 후에 다시 리로드하는 것이다. 여기서 한 가지 주의할 점은 함수가 표현식의 일부일 수 있다는 것이다. 따라서 다음 순서를 따라야 한다:
 
-If we do the last two out of order, we will lose the returned value
-as we reload all the old registers.
+1. 먼저 레지스터를 스필한다.
+2. 함수의 인자를 레지스터를 사용해 복사한다.
+3. 함수를 호출한다.
+4. 레지스터를 리로드하기 전에
+5. 레지스터의 반환 값을 복사한다.
 
-To make the above happen, I've had to share the spill/reload duties
-between `gen.c` and `cg.c` as follows.
+만약 마지막 두 단계를 순서대로 하지 않으면, 모든 이전 레지스터를 리로드하면서 반환 값을 잃게 된다.
 
-In `gen_funccall()` in `gen.c`:
+위 과정을 구현하기 위해 `gen.c`와 `cg.c` 파일 간에 스필/리로드 작업을 공유해야 했다.
+
+`gen.c` 파일의 `gen_funccall()` 함수에서는 다음과 같이 구현한다:
 
 ```c
 static int gen_funccall(struct ASTnode *n) {
   ...
 
-  // Save the registers before we copy the arguments
+  // 인자 복사 전에 레지스터를 스필
   spill_all_regs();
 
-  // Walk the list of arguments and copy them
+  // 인자 리스트를 순회하며 복사
   ...
-  // Call the function, clean up the stack (based on numargs),
-  // and return its result
+  // 함수 호출, 스택 정리 (numargs 기반), 그리고 결과 반환
   return (cgcall(n->sym, numargs));
 }
 ```
 
-which does steps 1, 2 and 3: spill, copy, call. And in `cgcall()` in `cg.c`:
+이 코드는 스필, 복사, 호출의 세 단계를 수행한다. 그리고 `cg.c` 파일의 `cgcall()` 함수에서는 다음과 같이 구현한다:
 
 ```c
 int cgcall(struct symtable *sym, int numargs) {
   int outr;
 
-  // Call the function
+  // 함수 호출
   ...
-  // Remove any arguments pushed on the stack
+  // 스택에 푸시된 인자 제거
   ...
 
-  // Unspill all the registers
+  // 모든 레지스터를 언스필
   unspill_all_regs();
 
-  // Get a new register and copy the return value into it
+  // 새로운 레지스터를 할당하고 반환 값을 복사
   outr = alloc_register();
   fprintf(Outfile, "\tmovq\t%%rax, %s\n", reglist[outr]);
   return (outr);
 }
 ```
 
-which does the final two steps: reload and copy the return value.
+이 코드는 마지막 두 단계인 리로드와 반환 값 복사를 수행한다.
 
-## Example Time
 
-Here are some examples which cause register spills: function calls and
-complex expressions. We'll start with `tests/input136.c`:
+## 예제 살펴보기
+
+레지스터 오버플로우를 일으키는 몇 가지 예제를 살펴보자. 함수 호출과 복잡한 표현식이 그 대표적인 사례다. 먼저 `tests/input136.c`부터 시작한다:
 
 ```c
 int add(int x, int y) {
@@ -388,76 +284,71 @@ int main() {
 }
 ```
 
-`add()` needs to be treated as an expression. We put 3 into a register,
-and spill all the registers before we call `add(2,3)`. We reload the
-registers before we get the return value. The assembly code is:
+여기서 `add()` 함수는 표현식으로 처리해야 한다. 먼저 3을 레지스터에 넣고, `add(2,3)`을 호출하기 전에 모든 레지스터를 스택에 저장한다. 반환 값을 받기 전에 다시 레지스터를 복원한다. 이 과정을 어셈블리 코드로 표현하면 다음과 같다:
 
 ```
-        movq    $3, %r10        # Get 3 into %r10
+        movq    $3, %r10        # %r10에 3을 저장
         pushq   %r10
-        pushq   %r11            # Spill all four registers, thus
-        pushq   %r12            # preserving the %r10 value
+        pushq   %r11            # 네 개의 레지스터를 모두 스택에 저장
+        pushq   %r12            # %r10의 값을 보존
         pushq   %r13
-        movq    $3, %r11        # Copy the 3 and 2 arguments
+        movq    $3, %r11        # 인자 3과 2를 복사
         movq    %r11, %rsi
         movq    $2, %r11
         movq    %r11, %rdi
-        call    add@PLT         # Call add()
+        call    add@PLT         # add() 호출
         popq    %r13
-        popq    %r12            # Reload all four registers, thus
-        popq    %r11            # restoring the %r10 value
+        popq    %r12            # 네 개의 레지스터를 복원
+        popq    %r11            # %r10의 값 복구
         popq    %r10
-        movq    %rax, %r11      # Get the return value into %r11
-        imulq   %r11, %r10      # Multiply 3 * add(2,3)
+        movq    %rax, %r11      # 반환 값을 %r11에 저장
+        imulq   %r11, %r10      # 3 * add(2,3) 계산
 ```
 
-Yes, there is plenty of scope for optimisation here. KISS, though.
+이 코드는 최적화의 여지가 많지만, 일단은 간단하게 유지한다.
 
-In `tests/input137.c`, there is this expression:
+다음으로 `tests/input137.c`의 표현식을 살펴보자:
 
 ```c
   x= a + (b + (c + (d + (e + (f + (g + h))))));
 ```
 
-which requires eight registers and so we'll need to spill four of them. The
-generated assembly code is:
+이 표현식은 8개의 레지스터가 필요하므로, 그중 4개를 스택에 저장해야 한다. 생성된 어셈블리 코드는 다음과 같다:
 
 ```
         movslq  a(%rip), %r10
         movslq  b(%rip), %r11
         movslq  c(%rip), %r12
         movslq  d(%rip), %r13
-        pushq   %r10             # spilling %r10
+        pushq   %r10             # %r10 스택에 저장
         movslq  e(%rip), %r10
-        pushq   %r11             # spilling %r11
+        pushq   %r11             # %r11 스택에 저장
         movslq  f(%rip), %r11
-        pushq   %r12             # spilling %r12
+        pushq   %r12             # %r12 스택에 저장
         movslq  g(%rip), %r12
-        pushq   %r13             # spilling %r13
+        pushq   %r13             # %r13 스택에 저장
         movslq  h(%rip), %r13
         addq    %r13, %r12
-        popq    %r13            # unspilling %r13
+        popq    %r13            # %r13 복원
         addq    %r12, %r11
-        popq    %r12            # unspilling %r12
+        popq    %r12            # %r12 복원
         addq    %r11, %r10
-        popq    %r11            # unspilling %r11
+        popq    %r11            # %r11 복원
         addq    %r10, %r13
-        popq    %r10            # unspilling %r10
+        popq    %r10            # %r10 복원
         addq    %r13, %r12
         addq    %r12, %r11
         addq    %r11, %r10
         movl    %r10d, -4(%rbp)
 ```
 
-and overall we end up with the correct expression evaluation.
+결과적으로 올바른 표현식 계산이 완료된다.
 
-## Conclusion and What's Next
 
-Register allocating and spilling is hard to get right, and there is a
-lot of optimisation theory which can be brought to bear. I've implemented
-quite a naive approach to register  allocating and spilling. It will work
-but there is substantial room for improvement.
+## 결론 및 다음 단계
 
-While doing the above, I also fixed the problem with `&&` and `||`. I've
-decided to write these changes up in the next part, even though the
-code here already has these changes. [Next step](../55_Lazy_Evaluation/Readme.md)
+레지스터 할당과 스필링은 제대로 구현하기 어려운 작업이며, 이를 최적화하기 위해 다양한 이론이 존재한다. 지금은 비교적 단순한 방식으로 레지스터 할당과 스필링을 구현했다. 이 방법은 동작하지만, 개선할 여지가 많이 남아 있다.
+
+이 작업을 진행하면서 `&&`와 `||` 관련 문제도 해결했다. 이 변경 사항은 이미 코드에 반영되어 있지만, 다음 파트에서 이 내용을 자세히 설명할 예정이다. [다음 단계](../55_Lazy_Evaluation/Readme.md)
+
+

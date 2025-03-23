@@ -1,129 +1,86 @@
-# Part 27: Regression Testing and a Nice Surprise
+# 27장: 회귀 테스트와 뜻밖의 성과
 
-We've had a few large-ish steps recently in our 
-compiler writing journey, so I thought we should have
-a bit of a breather in this step. We can slow down a
-bit and review our progress so far.
+최근 컴파일러 개발 과정에서 몇 가지 큰 진전이 있었기 때문에, 이번 단계에서는 잠시 숨을 돌릴 필요가 있다고 생각했다. 속도를 조금 늦추고 지금까지의 진행 상황을 되돌아보자.
 
-In the last step I noticed that we didn't have a way to
-confirm that our syntax and semantic error checking was
-working correctly. So I've just rewritten the scripts
-in the `tests/` folder to do this.
+지난 단계에서 구문 오류와 의미 오류 검사가 제대로 작동하는지 확인할 방법이 없다는 것을 깨달았다. 그래서 `tests/` 폴더에 있는 스크립트를 다시 작성해 이 문제를 해결했다.
 
-I've been using Unix since the late 1980s, so my go-to
-automation tools are shell scripts and Makefiles or,
-if I need more complex tools, scripts written in Python
-or Perl (yes, I'm that old).
+1980년대 후반부터 Unix를 사용해 왔기 때문에, 나의 자동화 도구는 주로 쉘 스크립트와 Makefile이다. 더 복잡한 도구가 필요하면 Python이나 Perl로 스크립트를 작성한다(그렇다, 나는 그 정도로 오래되었다).
 
-So let's quickly look at the `runtest` script in the
-`tests/` directory. Even though I said I'd been using
-Unix scripts forever, I'm definitely not an uber
-script writer.
+이제 `tests/` 디렉토리에 있는 `runtest` 스크립트를 간단히 살펴보자. Unix 스크립트를 오랫동안 사용해 왔지만, 나는 절대 최고 수준의 스크립트 작가는 아니다.
 
-## The `runtest` Script
 
-The job of this script is to take a set of input programs,
-get our compiler to compile them, run the executable
-and compare its output against known-good output. If they
-match, the test is a success. If not, it's a failure.
+## `runtest` 스크립트
 
-I've just extended it so that, if there is an "error"
-file associated with an input, we run our compiler
-and capture its error output. If this error output
-matches the expected error output, the test is a
-success as the compiler correctly detected the bad input.
+이 스크립트의 역할은 입력 프로그램들을 받아 컴파일러로 컴파일하고, 실행 파일을 실행한 후 그 결과를 미리 준비된 정답과 비교한다. 결과가 일치하면 테스트는 성공이고, 그렇지 않으면 실패로 처리한다.
 
-So let's look at the sections of the `runtest` script in stages.
+최근에는 입력과 관련된 "error" 파일이 있는 경우, 컴파일러를 실행해 오류 출력을 캡처하도록 기능을 확장했다. 이 오류 출력이 예상된 오류 출력과 일치하면, 컴파일러가 잘못된 입력을 올바르게 감지한 것으로 간주해 테스트를 성공으로 처리한다.
+
+이제 `runtest` 스크립트의 각 부분을 단계별로 살펴보자.
 
 ```
-# Build our compiler if needed
+# 필요한 경우 컴파일러를 빌드
 if [ ! -f ../comp1 ]
 then (cd ..; make)
 fi
 ```
 
-I'm using the '( ... )' syntax here to create a *sub-shell*. This
-can change its working directory without affecting the original
-shell, so we can move up a directory and rebuild our compiler.
-
+여기서 '( ... )' 구문을 사용해 *서브셸*을 생성한다. 이렇게 하면 원래 셸의 작업 디렉토리에 영향을 주지 않고 상위 디렉토리로 이동해 컴파일러를 다시 빌드할 수 있다.
 
 ```
-# Try to use each input source file
+# 각 입력 소스 파일을 사용해 테스트 시도
 for i in input*
-# We can't do anything if there's no file to test against
+# 비교할 파일이 없으면 테스트를 실행할 수 없음
 do if [ ! -f "out.$i" -a ! -f "err.$i" ]
    then echo "Can't run test on $i, no output file!"
 ```
 
-The '[' thing is actually the external Unix tool, *test(1)*.
-Oh, if you've never seen this syntax before, *test(1)* means
-the manual page for *test* is in Section One of the man pages,
-and you can do:
+'[' 기호는 실제로 외부 유닉스 도구인 *test(1)*를 의미한다. 이 구문을 처음 보는 사람을 위해 설명하자면, *test(1)*는 매뉴얼 페이지의 섹션 1에 해당하는 *test*의 매뉴얼 페이지를 의미한다. 따라서 다음과 같이 명령어를 실행해 매뉴얼을 읽을 수 있다.
 
 ```
 $ man 1 test
 ```
 
-to read the manual for *test* in Section One of the man pages.
-The `/usr/bin/[` executable is usually linked to `/usr/bin/test`,
-so that when you use '[' in a shell script, it's the same as running
-the *test* command.
+`/usr/bin/[` 실행 파일은 보통 `/usr/bin/test`에 링크되어 있다. 따라서 셸 스크립트에서 '['를 사용하는 것은 *test* 명령어를 실행하는 것과 동일하다.
 
-We can read the line `[ ! -f "out.$i" -a ! -f "err.$i" ]` as saying:
-test if there is no file "out.$i" and no file "err.$i". If both
-don't exist, we can give the error message.
+`[ ! -f "out.$i" -a ! -f "err.$i" ]` 라인은 "out.$i" 파일과 "err.$i" 파일이 모두 존재하지 않는지 테스트한다. 두 파일이 모두 없으면 오류 메시지를 출력한다.
 
 ```
-   # Output file: compile the source, run it and
-   # capture the output, and compare it against
-   # the known-good output
+   # 출력 파일: 소스를 컴파일하고 실행한 후
+   # 결과를 캡처해 정답과 비교
    else if [ -f "out.$i" ]
         then
-          # Print the test name, compile it
-          # with our compiler
+          # 테스트 이름을 출력하고 컴파일러로 컴파일
           echo -n $i
           ../comp1 $i
 
-          # Assemble the output, run it
-          # and get the output in trial.$i
+          # 출력을 어셈블하고 실행한 후
+          # 결과를 trial.$i에 저장
           cc -o out out.s ../lib/printint.c
           ./out > trial.$i
 
-          # Compare this agains the correct output
+          # 정답과 비교
           cmp -s "out.$i" "trial.$i"
 
-          # If different, announce failure
-          # and print out the difference
+          # 다르면 실패를 알리고 차이점 출력
           if [ "$?" -eq "1" ]
           then echo ": failed"
             diff -c "out.$i" "trial.$i"
             echo
 
-          # No failure, so announce success
+          # 실패가 없으면 성공을 알림
           else echo ": OK"
           fi
 ```
 
-This is the bulk of the script. I think the comments
-explain what is going on, but perhaps there are some
-subtleties to flesh out. `cmp -s` compares two
-text files;  the `-s` flag means produce no output
-but set the exit value that `cmp` gives when it exits to:
+이 부분이 스크립트의 핵심이다. 주석으로 설명이 되어 있지만, 몇 가지 세부 사항을 더 살펴보자. `cmp -s`는 두 텍스트 파일을 비교한다. `-s` 플래그는 출력을 생성하지 않고, `cmp`가 종료할 때 반환하는 종료 값을 설정한다.
 
-> 0 if inputs are the same, 1  if  different,  2  if
-  trouble. (from the man page)
+> 입력이 같으면 0, 다르면 1, 문제가 발생하면 2를 반환 (매뉴얼 페이지 참조)
 
-The line `if [ "$?" -eq "1" ]` says: if the exit value
-of the last command is equal to the number 1. So, if
-the compiler's output is different to the known-good
-output, we announce this and use the `diff` tool to
-show the differences between the two files.
+`if [ "$?" -eq "1" ]` 라인은 마지막 명령어의 종료 값이 1인지 확인한다. 따라서 컴파일러의 출력이 정답과 다르면 이를 알리고 `diff` 도구를 사용해 두 파일의 차이점을 보여준다.
 
 ```
-   # Error file: compile the source and
-   # capture the error messages. Compare
-   # against the known-bad output. Same
-   # mechanism as before
+   # 오류 파일: 소스를 컴파일하고 오류 메시지를 캡처
+   # 정답과 비교. 이전과 동일한 메커니즘
    else if [ -f "err.$i" ]
         then
           echo -n $i
@@ -132,35 +89,23 @@ show the differences between the two files.
           ...
 ```
 
-This section gets executed when there is an error
-document, "err.$i". This time, we use the shell
-syntax `2>` to capture our compiler's standard
-error output to the file "trial.$i" and compare
-that against the correct error output. The logic
-after this is the same as before.
+이 부분은 "err.$i" 오류 파일이 있을 때 실행된다. 이번에는 셸 구문 `2>`를 사용해 컴파일러의 표준 오류 출력을 "trial.$i" 파일로 캡처하고, 이를 정답 오류 출력과 비교한다. 이후 로직은 이전과 동일하다.
 
-## What We Are Doing: Regression Testing
 
-I haven't talked much before about testing, but now's the
-time. I've taught software development in the past so it
-would be remiss of me not to cover testing at some point.
+## 우리가 하는 작업: 회귀 테스트
 
-What we are doing here is [**regression testing**](https://en.wikipedia.org/wiki/Regression_testing).
-Wikipedia gives this definition:
+지금까지 테스트에 대해 많이 언급하지 않았지만, 이제 그때가 왔다. 과거에 소프트웨어 개발을 가르친 경험이 있기 때문에, 테스트를 다루지 않는다면 큰 실수를 저지르는 셈이다.
 
-> Regression testing is the action of re-running functional and non-functional tests
-> to ensure that previously developed and tested software still performs after a change.
+우리가 여기서 진행하는 것은 [**회귀 테스트**](https://en.wikipedia.org/wiki/Regression_testing)다. 위키피디아에서는 이를 다음과 같이 정의한다:
 
-As our compiler is changing at each step, we have to ensure that each new change doesn't
-break the functionality (and the error checking) of the previous steps. So each time I
-introduce a change, I add one or more tests to a) prove that it works and b) re-run
-this test on future changes. As long as all the tests pass, I'm sure that the new
-code hasn't broken the old code.
+> 회귀 테스트는 이전에 개발되고 테스트된 소프트웨어가 변경 후에도 여전히 정상적으로 동작하는지 확인하기 위해 기능적 및 비기능적 테스트를 다시 실행하는 작업이다.
 
-### Functional Tests
+우리의 컴파일러는 각 단계마다 변화하므로, 새로운 변경 사항이 이전 단계의 기능(및 오류 검사)을 망가뜨리지 않도록 해야 한다. 따라서 변경 사항을 도입할 때마다, 나는 하나 이상의 테스트를 추가하여 a) 해당 기능이 작동하는지 확인하고 b) 이후 변경 사항에서 이 테스트를 다시 실행한다. 모든 테스트가 통과하는 한, 새로운 코드가 기존 코드를 망가뜨리지 않았다고 확신할 수 있다.
 
-The `runtests` script looks for files with the `out` prefix to do the
-functional testing. Right now, we have:
+
+### 기능 테스트
+
+`runtests` 스크립트는 `out` 접두사가 붙은 파일을 찾아 기능 테스트를 수행한다. 현재 다음과 같은 파일들이 있다:
 
 ```
 tests/out.input01.c  tests/out.input12.c   tests/out.input22.c
@@ -176,16 +121,12 @@ tests/out.input10.c  tests/out.input20.c   tests/out.input53.c
 tests/out.input11.c  tests/out.input21.c   tests/out.input54.c
 ```
 
-That's 33 separate tests of the compiler's functionality. Right now,
-I know for a fact that our compiler is a bit fragile. None of these
-tests really stress the compiler in any way: they are simple tests
-of a few lines each. Later on, we will start to add some nasty stress
-tests to help strengthen the compiler and make it more resilient.
+총 33개의 별도 테스트가 컴파일러의 기능을 검증한다. 현재 우리 컴파일러는 다소 취약한 상태다. 이 테스트들은 컴파일러를 크게 부담하지 않는다. 각 테스트는 몇 줄로 구성된 간단한 예제다. 나중에 컴파일러를 강화하고 더 견고하게 만들기 위해 일부 부하 테스트를 추가할 예정이다.
 
-### Non-Functional Tests
 
-The `runtests` script looks for files with the `err` prefix to do the
-functional testing. Right now, we have:
+### 비기능적 테스트
+
+`runtests` 스크립트는 `err` 접두사가 붙은 파일을 찾아 기능 테스트를 수행한다. 현재 다음과 같은 파일들이 있다:
 
 ```
 tests/err.input31.c  tests/err.input39.c  tests/err.input47.c
@@ -198,63 +139,36 @@ tests/err.input37.c  tests/err.input45.c
 tests/err.input38.c  tests/err.input46.c
 ```
 
-I created these 22 tests of the compiler's error checking in this
-step of our journey by looking for `fatal()` calls in the compiler.
-For each one, I've tried to write a small input file which would
-trigger it. Have a read of the matching source files and see if
-you can work out what syntax or semantic error each one triggers.
+이 단계에서 컴파일러의 오류 검사를 위해 22개의 테스트를 만들었다. 컴파일러 내부의 `fatal()` 호출을 찾아 각각을 트리거할 수 있는 작은 입력 파일을 작성했다. 해당 소스 파일을 읽어보고 각 테스트가 어떤 문법 또는 의미론적 오류를 발생시키는지 확인해 보자.
 
-## Other Forms of Testing
 
-This isn't a course on software development methodologies, so I won't give
-too much more coverage on testing. But I'll give you links to a few
-more thing that I would highly recommend that you look at:
+## 다양한 테스트 방식
 
-  + [Unit testing](https://en.wikipedia.org/wiki/Unit_testing)
-  + [Test-driven development](https://en.wikipedia.org/wiki/Test-driven_development)
-  + [Continuous integration](https://en.wikipedia.org/wiki/Continuous_integration)
-  + [Version control](https://en.wikipedia.org/wiki/Version_control)
+이 강의는 소프트웨어 개발 방법론에 대한 내용이 아니므로, 테스트에 대해 깊이 다루지는 않는다. 하지만 여러분이 꼭 알아두면 좋을 몇 가지 주제에 대한 링크를 공유한다:
 
-I haven't done any unit testing with our compiler. The main reason
-here is that the code is very fluid in terms of the APIs for the
-functions. I'm not using a traditional waterfall model of development,
-so I'd be spending too much time rewriting my unit tests to match
-the latest APIs of all the functions. So, in some sense I am living
-dangerously here: there will be a number of latent bugs in the code
-which we haven't detected yet.
++ [유닛 테스트](https://en.wikipedia.org/wiki/Unit_testing)
++ [테스트 주도 개발](https://en.wikipedia.org/wiki/Test-driven_development)
++ [지속적 통합](https://en.wikipedia.org/wiki/Continuous_integration)
++ [버전 관리](https://en.wikipedia.org/wiki/Version_control)
 
-However, there are guaranteed to be *many* more bugs where the
-compiler looks like it accepts the C language, but of course this isn't
-true. The compiler is failing the
-[principle of least astonishment](https://en.wikipedia.org/wiki/Principle_of_least_astonishment). We will need to spend some time adding in
-functionality that a "normal" C programmer expects to see.
+현재 우리의 컴파일러에는 유닛 테스트를 적용하지 않았다. 주요 이유는 함수들의 API가 매우 유동적이기 때문이다. 전통적인 폭포수 모델을 따르지 않기 때문에, 모든 함수의 최신 API에 맞춰 유닛 테스트를 다시 작성하는 데 너무 많은 시간을 소모하게 된다. 따라서 어느 정도는 위험한 상황에 놓여 있다고 할 수 있다. 아직 발견하지 못한 잠재적 버그가 코드 내에 존재할 가능성이 크다.
 
-## And a Nice Surprise
+그러나 컴파일러가 C 언어를 받아들이는 것처럼 보이지만 실제로는 그렇지 않은 경우, 훨씬 더 많은 버그가 존재할 수밖에 없다. 컴파일러는 [최소 놀람의 원칙](https://en.wikipedia.org/wiki/Principle_of_least_astonishment)을 충족하지 못하고 있다. 일반적인 C 프로그래머가 기대하는 기능을 추가하는 데 시간을 투자해야 할 것이다.
 
-Finally, we have a nice functional surprise with the compiler as it
-stands. A while back, I purposefully left out the code to test
-that the number and type of arguments to a function call matches
-the function's prototype (in `expr.c`):
+
+## 그리고 좋은 깜짝 선물
+
+컴파일러를 개발하면서 좋은 깜짝 선물을 하나 발견했다. 한동안 함수 호출 시 인자의 개수와 타입이 함수 프로토타입과 일치하는지 확인하는 코드를 일부러 추가하지 않았다(`expr.c` 파일 참조):
 
 ```
-  // XXX Check type of each argument against the function's prototype
+  // XXX 각 인자의 타입을 함수 프로토타입과 비교하는 코드 추가 필요
 ```
 
-I left this out as I didn't want to add too much new code in one of
-our steps.
+한 번에 너무 많은 코드를 추가하고 싶지 않아 이 부분을 일부러 생략했다.
 
-Now that we have prototypes, I've wanted to finally add support for
-`printf()` so that we can ditch our homegrown `printint()` and
-`printchar()` functions. But we can't do this just yet, because
-`printf()` is a [variadic function](https://en.wikipedia.org/wiki/Variadic_function):
-it can accept a variable number of parameters. And, right now, our
-compiler only allows a function declaration with a fixed number of
-parameters.
+이제 프로토타입을 지원하니, `printf()` 함수를 추가하여 우리가 직접 만든 `printint()`와 `printchar()` 함수를 대체하고 싶었다. 하지만 아직은 불가능하다. `printf()`는 [가변 인자 함수](https://ko.wikipedia.org/wiki/가변_인자_함수)이기 때문이다. 현재 우리 컴파일러는 고정된 개수의 인자만 허용한다.
 
-*However* (and this is the nice surprise), because we don't check
-the number of arguments in a function call, we can pass *any* number
-of arguments to `printf()` as long as we have given it an existing
-prototype. So, at present, this code (`tests/input53.c`) works:
+*그런데* (이것이 바로 깜짝 선물이다), 함수 호출 시 인자 개수를 확인하지 않기 때문에, 프로토타입만 존재한다면 `printf()`에 *임의의* 개수의 인자를 전달할 수 있다. 따라서 현재 이 코드(`tests/input53.c`)가 정상적으로 동작한다:
 
 ```c
 int printf(char *fmt);
@@ -266,27 +180,19 @@ int main()
 }
 ```
 
-And that's a nice thing!
+이것은 정말 좋은 점이다!
 
-There is a gotcha. With the given `printf()` prototype, the cleanup code
-in `cgcall()` won't adjust the stack pointer when the function returns,
-as there are less than six parameters in the prototype. But we could
-call `printf()` with ten arguments: we'd push four of them on the stack,
-but `cgcall()` wouldn't clean up these four arguments when `printf()`
-returns.
+하지만 주의할 점이 있다. 위의 `printf()` 프로토타입을 사용하면, `cgcall()`의 정리 코드는 함수가 반환될 때 스택 포인터를 조정하지 않는다. 프로토타입에 정의된 인자 개수가 6개 미만이기 때문이다. 그러나 `printf()`를 10개의 인자로 호출할 수도 있다. 이 경우 4개의 인자를 스택에 푸시하지만, `printf()`가 반환될 때 `cgcall()`은 이 4개의 인자를 정리하지 않는다.
 
-## Conclusion and What's Next
 
-There is no new compiler code in this step, but we are now testing the
-error checking capability of the compiler, and we now have 54
-regression tests to help ensure we don't break the compiler when
-we add new functionality. And, fortuitously, we can now use
-`printf()` as well as the other external fixed parameter count functions.
+## 결론 및 다음 단계
 
-In the next part of our compiler writing journey, I think I'll
-try to:
+이번 단계에서는 새로운 컴파일러 코드를 추가하지 않았다. 대신 컴파일러의 오류 검사 기능을 테스트하고 있다. 현재 54개의 회귀 테스트를 통해 새로운 기능을 추가할 때 컴파일러가 깨지지 않도록 보장한다. 또한, 운 좋게도 이제 `printf()`와 같은 외부 고정 인자 수 함수를 사용할 수 있게 되었다.
 
- + add support for an external pre-processor
- + allow the compiler to compile multiple files named on the command line
- + add the `-o`, `-c` and `-S` flags to the compiler to make it feel
-more like a "normal" C compiler [Next step](../28_Runtime_Flags/Readme.md)
+컴파일러 개발의 다음 단계에서는 다음과 같은 작업을 시도할 계획이다:
+
++ 외부 전처리기 지원 추가
++ 커맨드라인에 지정된 여러 파일을 컴파일할 수 있도록 기능 확장
++ `-o`, `-c`, `-S` 플래그를 추가해 일반적인 C 컴파일러처럼 작동하도록 개선 [다음 단계](../28_Runtime_Flags/Readme.md)
+
+

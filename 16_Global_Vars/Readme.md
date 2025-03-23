@@ -1,22 +1,17 @@
-# Part 16: Declaring Global Variables Properly
+# 16장: 전역 변수 올바르게 선언하기
 
-I did promise to look at the issue of adding offsets to pointers, but
-I need to do some thinking about that first. So I've decided to move
-global variable declarations out of function declarations. Actually,
-I've also left the parsing of variable declarations inside functions, because
-later on we will change them to be local variable declarations.
+포인터에 오프셋을 추가하는 문제를 살펴보겠다고 약속했지만, 그 전에 먼저 깊이 생각할 필요가 있다. 그래서 함수 선언 외부에 전역 변수 선언을 옮기기로 결정했다. 사실, 함수 내부의 변수 선언 파싱도 그대로 두었다. 나중에 이 부분을 지역 변수 선언으로 변경할 예정이기 때문이다.
 
-I also want to extend our grammar so that we can declare multiple
-variables with the same type at the same time, e.g.
+또한 문법을 확장해 동일한 타입의 여러 변수를 한 번에 선언할 수 있도록 하고 싶다. 예를 들어, 다음과 같은 방식이다:
 
 ```c
   int x, y, z;
 ```
 
-## The New BNF Grammar
 
-Here is the new BNF grammar for global declarations, both functions and
-variables:
+## 새로운 BNF 문법
+
+전역 선언(함수와 변수 모두)을 위한 새로운 BNF 문법은 다음과 같다:
 
 ```
  global_declarations : global_declarations 
@@ -38,134 +33,114 @@ variables:
  identifier_list: identifier | identifier ',' identifier_list ;
 ```
 
-Both `function_declaration` and `global_declaration` start with a `type`.
-This is now a `type_keyword` followed by `opt_pointer` which is zero or more
-'*' tokens. After this, both `function_declaration` and `global_declaration`
-must be followed by one identifier.
+`function_declaration`과 `global_declaration`은 모두 `type`으로 시작한다. 이제 `type`은 `type_keyword`와 `opt_pointer`로 구성되며, `opt_pointer`는 0개 이상의 '*' 토큰을 포함한다. 이후 `function_declaration`과 `global_declaration`은 하나의 `identifier`가 뒤따라야 한다.
 
-However, after the `type`, `var_declaration` is followed by an
-`identifier_list`, which is one or more `identifier`s separated by a ',' token.
-Also `var_declaration` must end with a ';' token but `function_declaration`
-ends with a `compound_statement` and no ';' token.
+그러나 `type` 이후 `var_declaration`은 `identifier_list`가 따라오며, 이는 ',' 토큰으로 구분된 하나 이상의 `identifier`로 구성된다. 또한 `var_declaration`은 ';' 토큰으로 끝나야 하지만, `function_declaration`은 `compound_statement`로 끝나며 ';' 토큰이 필요하지 않다.
 
-## New Tokens
 
-We now have the T_COMMA token for the ',' character in `scan.c`.
+## 새로운 토큰
 
-## Changes to `decl.c`
+이제 `scan.c` 파일에서 ',' 문자를 위한 T_COMMA 토큰을 추가했다.
 
-We now convert the above BNF grammar into a set of recursive descent
-functions but, as we can do looping, we can turn some of the recursion
-into internal loops.
 
-### `global_declarations()`
+## `decl.c`에 대한 변경 사항
 
-As there are one or more global declarations, we can loop parsing
-each one. When we run out of tokens, we can leave the loop.
+위의 BNF 문법을 재귀 하강 함수 집합으로 변환한다. 하지만 반복문을 사용할 수 있기 때문에, 재귀의 일부를 내부 반복문으로 바꿀 수 있다.
+
+
+### `global_declarations()` 함수
+
+하나 이상의 전역 선언이 있을 때, 각 선언을 반복해서 파싱할 수 있다. 토큰이 더 이상 없으면 반복문을 종료한다.
 
 ```c
-// Parse one or more global declarations, either
-// variables or functions
+// 하나 이상의 전역 선언을 파싱한다. 
+// 변수 또는 함수 선언이 가능하다.
 void global_declarations(void) {
   struct ASTnode *tree;
   int type;
 
   while (1) {
 
-    // We have to read past the type and identifier
-    // to see either a '(' for a function declaration
-    // or a ',' or ';' for a variable declaration.
-    // Text is filled in by the ident() call.
+    // 타입과 식별자를 읽은 후, 
+    // 함수 선언인 경우 '('를 확인하거나
+    // 변수 선언인 경우 ',' 또는 ';'를 확인한다.
+    // ident() 호출로 텍스트가 채워진다.
     type = parse_type();
     ident();
     if (Token.token == T_LPAREN) {
 
-      // Parse the function declaration and
-      // generate the assembly code for it
+      // 함수 선언을 파싱하고 
+      // 해당 함수에 대한 어셈블리 코드를 생성한다.
       tree = function_declaration(type);
       genAST(tree, NOREG, 0);
     } else {
 
-      // Parse the global variable declaration
+      // 전역 변수 선언을 파싱한다.
       var_declaration(type);
     }
 
-    // Stop when we have reached EOF
+    // EOF에 도달하면 종료한다.
     if (Token.token == T_EOF)
       break;
   }
 }
 ```
 
-Knowing that, for now we only have global variables and functions, we
-can scan in the type here and the first identifier. Then, we look at
-the next token. If it's a '(', we call `function_declaration()`. If not,
-we can assume that it is a  `var_declaration()`. We pass the `type`
-in to both functions.
+현재는 전역 변수와 함수만 존재한다는 것을 알고 있으므로, 여기서 타입과 첫 번째 식별자를 스캔할 수 있다. 그런 다음, 다음 토큰을 확인한다. 만약 '('라면 `function_declaration()`을 호출한다. 그렇지 않으면 `var_declaration()`이라고 가정한다. 두 함수 모두 `type`을 전달한다.
 
-Now that we are receiving the AST `tree` from `function_declaration()`
-here, we can generate the code from the AST tree immediately. This code
-was in `main()` but has now been moved here. `main()` now only has to 
-call `global_declarations()`:
+이제 `function_declaration()`에서 AST `tree`를 받아오므로, 즉시 AST 트리에서 코드를 생성할 수 있다. 이 코드는 원래 `main()`에 있었지만, 이제 여기로 이동했다. `main()`은 이제 `global_declarations()`만 호출하면 된다:
 
 ```c
-  scan(&Token);                 // Get the first token from the input
-  genpreamble();                // Output the preamble
-  global_declarations();        // Parse the global declarations
-  genpostamble();               // Output the postamble
+  scan(&Token);                 // 입력에서 첫 번째 토큰을 가져온다.
+  genpreamble();                // 프리앰블을 출력한다.
+  global_declarations();        // 전역 선언을 파싱한다.
+  genpostamble();               // 포스트앰블을 출력한다.
 ```
+
 
 ### `var_declaration()`
 
-The parsing of functions is much the same as before, except the code
-to scan the type and identifier are done elsewhere, and we receive the
-`type` as an argument.
+함수 파싱은 이전과 거의 동일하다. 단, 타입과 식별자를 스캔하는 코드가 다른 곳에서 처리되며, `type`을 인자로 받는다.
 
-The parsing of variables also loses the type and identifier scanning code.
-We can add the identifier to the global symbol and generate the assembly
-code for it. But now we need to add in a loop. If there's a following ',',
-loop back to get the next identifier with the same type. And if there's
-a following ';', that's the end of the variable declarations.
+변수 파싱 역시 타입과 식별자 스캔 코드가 사라졌다. 식별자를 전역 심볼에 추가하고 이를 위한 어셈블리 코드를 생성할 수 있다. 하지만 이제 루프를 추가해야 한다. 만약 다음 토큰이 ','라면, 동일한 타입의 다음 식별자를 얻기 위해 루프를 돌아야 한다. 그리고 다음 토큰이 ';'라면, 변수 선언이 끝난 것이다.
 
 ```c
-// Parse the declaration of a list of variables.
-// The identifier has been scanned & we have the type
+// 변수 목록의 선언을 파싱한다.
+// 식별자는 이미 스캔되었으며, 타입을 가지고 있다
 void var_declaration(int type) {
   int id;
 
   while (1) {
-    // Text now has the identifier's name.
-    // Add it as a known identifier
-    // and generate its space in assembly
+    // Text에 식별자 이름이 있다.
+    // 이를 알려진 식별자로 추가하고
+    // 어셈블리에서 공간을 생성한다
     id = addglob(Text, type, S_VARIABLE, 0);
     genglobsym(id);
 
-    // If the next token is a semicolon,
-    // skip it and return.
+    // 다음 토큰이 세미콜론이면,
+    // 이를 건너뛰고 반환한다.
     if (Token.token == T_SEMI) {
       scan(&Token);
       return;
     }
-    // If the next token is a comma, skip it,
-    // get the identifier and loop back
+    // 다음 토큰이 쉼표면, 이를 건너뛰고
+    // 식별자를 얻은 후 루프를 반복한다
     if (Token.token == T_COMMA) {
       scan(&Token);
       ident();
       continue;
     }
-    fatal("Missing , or ; after identifier");
+    fatal("식별자 이후 , 또는 ;가 없습니다");
   }
 }
 ```
 
-## Not Quite Local Variables
 
-`var_declaration()` can now parse a list of variable declarations, but
-it requires the type and first identifier to be pre-scanned.
+## 완전히 지역 변수는 아님
 
-Thus, I've left the call to `var_declaration()` in `single_statement()`
-in `stmt.c`. Later on, we will modify this to declare local variables.
-But for now, all of the variables in this example program are globals:
+`var_declaration()` 함수는 이제 여러 변수 선언 목록을 파싱할 수 있지만, 타입과 첫 번째 식별자를 미리 스캔해야 한다.
+
+그래서 `stmt.c` 파일의 `single_statement()` 함수 내에서 `var_declaration()` 호출을 그대로 두었다. 나중에 이 부분을 수정해 지역 변수를 선언할 것이다. 하지만 지금은 이 예제 프로그램의 모든 변수가 전역 변수다:
 
 ```c
 int   d, f;
@@ -182,9 +157,10 @@ int main() {
 }
 ```
 
-## Testing the Changes
 
-The above code is our `tests/input16.c`. As always, we can test it:
+## 변경 사항 테스트
+
+위 코드는 `tests/input16.c` 파일이다. 이전과 마찬가지로 테스트를 진행할 수 있다:
 
 ```
 $ make test16
@@ -199,7 +175,8 @@ cc -o out out.s lib/printint.c
 ```
 
 
-## Conclusion and What's Next
+## 결론과 앞으로의 계획
 
-In the next part of our compiler writing journey,
-I promise to tackle the issue of adding offsets to pointers. [Next step](../17_Scaling_Offsets/Readme.md)
+컴파일러 개발 여정의 다음 단계에서는 포인터에 오프셋을 추가하는 문제를 다룰 예정이다. [다음 단계](../17_Scaling_Offsets/Readme.md)
+
+

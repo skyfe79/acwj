@@ -1,12 +1,8 @@
-# Part 18: Lvalues and Rvalues Revisited
+# 18장: Lvalue와 Rvalue 다시 보기
 
-As this is work in progress with no design document to guide me,
-occasionally I need to remove code that I've already written and
-rewrite it to make it more general, or to fix shortcomings. That's
-the case for this part of the journey.
+이 부분은 아직 진행 중인 작업으로, 설계 문서가 없어 가이드라인이 없다. 때로는 이미 작성한 코드를 제거하고 더 일반적으로 만들거나 문제점을 해결하기 위해 다시 작성해야 한다. 이번 장도 그런 경우에 해당한다.
 
-We added our initial support for pointers in part 15 so that we could
-write code line this:
+15장에서 포인터에 대한 초기 지원을 추가했고, 이를 통해 다음과 같은 코드를 작성할 수 있었다:
 
 ```c
   int  x;
@@ -15,45 +11,32 @@ write code line this:
   x= 12; y= &x; z= *y;
 ```
 
-That's all fine and good, but I knew that we would eventually have to
-support the use of pointers on the left-hand side of assignment statements,
-e.g.
+이것은 괜찮지만, 결국에는 대입문의 왼쪽에서 포인터를 사용하는 것도 지원해야 한다는 것을 알고 있었다. 예를 들어:
 
 ```c
   *y = 14;
 ```
 
-To do this, we have to revisit the topic of
-[lvalues and rvalues](https://en.wikipedia.org/wiki/Value_(computer_science)#lrvalue).
-To revise, an *lvalue* is a value that is tied to a specific location, whereas
-an *rvalue* is a value that isn't. Lvalues are persistent in that we can
-retrieve their value in future instructions. Rvalues, on the other
-hand, are evanescent: we can discard them once their use is finished.
+이를 위해 [Lvalue와 Rvalue](https://en.wikipedia.org/wiki/Value_(computer_science)#lrvalue) 주제를 다시 살펴봐야 한다. 복습하자면, *Lvalue*는 특정 위치에 연결된 값을 의미하고, *Rvalue*는 그렇지 않은 값을 의미한다. Lvalue는 지속적이므로 이후 명령에서 그 값을 다시 가져올 수 있다. 반면 Rvalue는 일시적이며, 사용이 끝나면 버려진다.
 
-### Examples of Rvalues and Lvalues
 
-An example of an rvalue is an integer literal, e.g. 23. We can use it
-in an expression and then discard it afterwards. Examples of lvalues
-are locations in memory which we can *store into*, such as:
+### Rvalue와 Lvalue 예제
+
+Rvalue의 예로는 정수 리터럴인 `23`을 들 수 있다. 이 값을 표현식에서 사용한 후 버릴 수 있다. Lvalue의 예로는 메모리 상의 위치를 들 수 있는데, 이 위치에 값을 *저장할 수 있다*. 예를 들어:
 
 ```
-   a            Scalar variable a
-   b[0]         Element zero of array b
-   *c           The location that pointer c points to
-   (*d)[0]      Element zero of the array that d points to
+   a            스칼라 변수 a
+   b[0]         배열 b의 0번째 요소
+   *c           포인터 c가 가리키는 위치
+   (*d)[0]      포인터 d가 가리키는 배열의 0번째 요소
 ```
 
-As I mentioned before, the names *lvalue* and *rvalue* come from the
-two sides of an assignment statement: lvalues are on the left, rvalues
-are on the right.
+앞서 언급했듯이, *lvalue*와 *rvalue*라는 이름은 대입문의 양쪽에서 유래했다. Lvalue는 왼쪽에, rvalue는 오른쪽에 위치한다.
 
-## Extending Our Notion of Lvalues
 
-Right now, the compiler treats nearly everything as an rvalue. For
-variables, it retrieves the value from the variable's location. Our
-only nod to the concept of the lvalue is to mark identifiers on the
-left of an assignment as an A_LVIDENT. We manually deal with this in
-`genAST()`:
+## Lvalue 개념 확장
+
+현재 컴파일러는 거의 모든 것을 rvalue로 처리한다. 변수의 경우, 변수 위치에서 값을 가져온다. lvalue 개념을 다루는 유일한 부분은 할당문 왼쪽에 있는 식별자를 A_LVIDENT로 표시하는 것이다. 이를 `genAST()` 함수에서 수동으로 처리한다:
 
 ```c
     case A_IDENT:
@@ -61,99 +44,69 @@ left of an assignment as an A_LVIDENT. We manually deal with this in
     case A_LVIDENT:
       return (cgstorglob(reg, n->v.id));
     case A_ASSIGN:
-      // The work has already been done, return the result
+      // 작업은 이미 완료되었으므로 결과를 반환
       return (rightreg);
 ```
 
-which we use for statements like `a= b;`. But now we need to mark
-more than just identifiers on the left-hand side of an assignment
-as lvalues.
+이 코드는 `a = b;`와 같은 구문을 처리할 때 사용된다. 하지만 이제는 할당문 왼쪽에 있는 식별자뿐만 아니라 더 많은 요소를 lvalue로 표시해야 한다.
 
-It's also important to make it easy to generate assembly code in
-the process. While I was writing this part, I tried the idea of
-prepending a "A_LVALUE" AST node as the parent to a tree, to
-tell the code generator to output the lvalue version of the code for it
-instead of the rvalue version. But this turned out to be too late:
-the sub-tree was already evaluated and rvalue code for it had already
-been generated.
+이 과정에서 어셈블리 코드를 쉽게 생성할 수 있도록 하는 것도 중요하다. 이 부분을 작성하면서 "A_LVALUE" AST 노드를 트리의 부모 노드로 추가하여 코드 생성기가 rvalue 버전 대신 lvalue 버전의 코드를 출력하도록 하는 아이디어를 시도해 보았다. 하지만 이 방법은 이미 너무 늦은 시점이었다. 서브 트리는 이미 평가되었고, rvalue 코드는 이미 생성된 상태였다.
 
-### Yet Another AST Node Change
 
-I'm loath to keep adding more fields to the AST node, but this is
-what I ended up doing. We now have a field to indicate if the node
-should generate lvalue code or rvalue code:
+### 또 다른 AST 노드 변경
+
+AST 노드에 필드를 계속 추가하는 것을 꺼리지만, 결국 이렇게 하게 되었다. 이제 노드가 lvalue 코드를 생성할지 rvalue 코드를 생성할지 나타내는 필드를 추가했다:
 
 ```c
-// Abstract Syntax Tree structure
+// 추상 구문 트리 구조
 struct ASTnode {
-  int op;                       // "Operation" to be performed on this tree
-  int type;                     // Type of any expression this tree generates
-  int rvalue;                   // True if the node is an rvalue
+  int op;                       // 이 트리에서 수행할 "연산"
+  int type;                     // 이 트리가 생성하는 표현식의 타입
+  int rvalue;                   // 노드가 rvalue인지 여부
   ...
 };
 ```
 
-The `rvalue` field only holds one bit of information; later on, if I need
-to store other booleans, I will be able to use this as a bitfield.
+`rvalue` 필드는 단 한 비트의 정보만을 담는다. 나중에 다른 불리언 값을 저장해야 할 경우, 이 필드를 비트 필드로 사용할 수 있다.
 
-Question: why did I make the field indicate the "rvalue"ness of the node
-and not the "lvalue"ness? After all, most of the nodes in our AST trees
-will hold rvalues and not lvalues. While I was reading Nils Holm's book
-on SubC, I read this line:
+왜 이 필드를 "rvalue" 여부를 나타내도록 만들었을까? 결국 대부분의 AST 노드는 rvalue를 담고 있지 lvalue를 담고 있지 않다. Nils Holm의 SubC 책을 읽다가 이런 문장을 보았다:
 
-> Since an indirection cannot be reversed later, the parser assumes each
-  partial expression to be an lvalue.
+> 역참조는 나중에 되돌릴 수 없기 때문에, 파서는 각 부분 표현식을 lvalue로 가정한다.
 
-Consider the parser working on the statement `b = a + 2`. After parsing
-the `b` identifier, we cannot yet tell is this is an lvalue or an rvalue.
-It's not until we hit the `=` token that we can conclude that it's an
-lvalue.
+파서가 `b = a + 2`라는 문장을 처리하는 상황을 생각해 보자. `b` 식별자를 파싱한 후, 이것이 lvalue인지 rvalue인지 아직 알 수 없다. `=` 토큰을 만나야 비로소 이것이 lvalue라는 결론을 내릴 수 있다.
 
-Also, the C language allows assignments as expressions, so we can also
-write `b = c = a + 2`. Again, when we parse the `a` identifier, we
-can't tell if it's an lvalue or an rvalue until we parse the next token.
+또한 C 언어는 할당을 표현식으로 허용하기 때문에 `b = c = a + 2`와 같은 코드도 작성할 수 있다. 다시 말해, `a` 식별자를 파싱할 때는 이것이 lvalue인지 rvalue인지 다음 토큰을 파싱할 때까지 알 수 없다.
 
-Therefore, I chose to assume each AST node to be an lvalue by default.
-Once we can definitely tell if a node is rvalue, we can then set the
-`rvalue` field to indicate this.
+따라서 각 AST 노드를 기본적으로 lvalue로 가정하기로 결정했다. 노드가 명확하게 rvalue임을 알게 되면, 그때 `rvalue` 필드를 설정하여 이를 나타낸다.
 
-## Assignment Expressions
 
-I also mentioned that the C language allows assignments as expressions.
-Now that we have a clear lvalue/rvalue distinction, we can shift the
-parsing of assignments as statements and move the code into the
-expression parser. I'll cover this later.
+## 할당 표현식
 
-It's now time to see what was done to the compiler code base to make
-this all happen. As always, we start with the tokens and the scanner
-first.
+앞서 C 언어가 할당을 표현식으로 허용한다는 점을 언급했다. 이제 lvalue와 rvalue를 명확히 구분했으므로, 할당을 문장으로 파싱하던 방식을 바꿔 표현식 파서로 코드를 이동할 수 있다. 이 부분은 나중에 자세히 다룰 예정이다.
 
-## Token and Scanning Changes
+이제 이러한 변화를 구현하기 위해 컴파일러 코드 베이스에서 어떤 작업을 했는지 살펴보자. 언제나 그렇듯이, 토큰과 스캐너부터 시작한다.
 
-We have no new tokens or new keywords this time. But there is a change
-which affects the token code. The `=` is now a binary operator with an
-expression on each side, so we need to integrate it with the other
-binary operators.
 
-According to [this list of C operators](https://en.cppreference.com/w/c/language/operator_precedence), the `=` operator has much lower precedence than
-`+` or `-`. We there need to rearrange our list of operators and their
-precedences. In `defs.h`:
+## 토큰과 스캐닝 변경 사항
+
+이번에는 새로운 토큰이나 키워드가 추가되지는 않았다. 하지만 토큰 코드에 영향을 미치는 변경 사항이 있다. `=` 연산자가 이제 양쪽에 표현식을 가지는 바이너리 연산자로 변경되었기 때문에, 이를 다른 바이너리 연산자들과 통합해야 한다.
+
+[C 연산자 우선순위 목록](https://en.cppreference.com/w/c/language/operator_precedence)에 따르면, `=` 연산자는 `+`나 `-`보다 훨씬 낮은 우선순위를 가진다. 따라서 연산자 목록과 그 우선순위를 재정렬해야 한다. `defs.h` 파일에서는 다음과 같이 정의한다:
 
 ```c
-// Token types
+// 토큰 타입
 enum {
   T_EOF,
-  // Operators
+  // 연산자
   T_ASSIGN,
   T_PLUS, T_MINUS, ...
 ```
 
-In `expr.c`, we need to update the code that holds the precedences for
-our binary operators:
+`expr.c` 파일에서는 바이너리 연산자의 우선순위를 담당하는 코드를 업데이트해야 한다:
 
 ```c
-// Operator precedence for each token. Must
-// match up with the order of tokens in defs.h
+// 각 토큰에 대한 연산자 우선순위. 
+// defs.h 파일의 토큰 순서와 일치해야 함
 static int OpPrec[] = {
    0, 10,                       // T_EOF,  T_ASSIGN
   20, 20,                       // T_PLUS, T_MINUS
@@ -163,21 +116,14 @@ static int OpPrec[] = {
 };
 ```
 
-## Changes to the Parser
 
-Now we have to remove the parsing of assignments as statements and
-make them into expressions. I also took the liberty of removing
-the "print" statement from the language, as we can now call `printint()`.
-So, in `stmt.c`, I've removed both `print_statement()` and
-`assignment_statement()`. 
+## 파서 변경 사항
 
-> I also removed the T_PRINT and 'print'
-  keywords from the language. And now that our concept of lvalues and
-  rvalues are different, I also removed the A_LVIDENT AST node type.
+이제 할당문을 문장(statement)으로 파싱하는 기능을 제거하고 표현식(expression)으로 변경한다. 또한 `printint()` 함수를 호출할 수 있게 되었으므로 "print" 문을 언어에서 제거했다. 따라서 `stmt.c` 파일에서 `print_statement()`와 `assignment_statement()` 함수를 모두 삭제했다.
 
-For now, the statement parser in `single_statement()` in `stmt.c`
-assumes that what's coming up next is an expression if it doesn't
-recognise the first token:
+> T_PRINT 토큰과 'print' 키워드도 언어에서 제거했다. 또한 lvalue와 rvalue 개념이 달라졌기 때문에 A_LVIDENT AST 노드 타입도 제거했다.
+
+현재 `stmt.c` 파일의 `single_statement()` 함수에서 첫 번째 토큰을 인식하지 못하면 다음에 오는 것을 표현식으로 간주한다:
 
 ```c
 static struct ASTnode *single_statement(void) {
@@ -186,40 +132,31 @@ static struct ASTnode *single_statement(void) {
   switch (Token.token) {
     ...
     default:
-    // For now, see if this is an expression.
-    // This catches assignment statements.
+    // 일단 이게 표현식인지 확인한다.
+    // 이렇게 하면 할당문도 잡아낸다.
     return (binexpr(0));
   }
 }
 ```
 
-This does mean that `2+3;` will be treated as a legal statement for now.
-We will fix this later. And in `compound_statement()` we also ensure
-that the expression is followed by a semicolon:
+이렇게 하면 `2+3;` 같은 코드도 현재는 합법적인 문장으로 처리된다. 이 문제는 나중에 수정할 예정이다. 그리고 `compound_statement()` 함수에서는 표현식 뒤에 세미콜론이 오는지 확인한다:
 
 ```c
-    // Some statements must be followed by a semicolon
+    // 일부 문장은 세미콜론으로 끝나야 한다
     if (tree != NULL && (tree->op == A_ASSIGN ||
                          tree->op == A_RETURN || tree->op == A_FUNCCALL))
       semi();
 ```
 
-## Expression Parsing
 
-You might think that, now that `=` is marked as a binary expression
-operator and we have set its precedence, that we are all done. Not so!
-There are two things we have to worry about:
+## 표현식 파싱
 
-1. We need to generate the assembly code for the right-hand rvalue
-   before the code for the left-hand lvalue. We used to do this in
-   the statement parser, and we'll have to do this in the expression
-   parser.
-2. Assignment expressions are *right associative*: the operator binds
-   more tightly to the expression on the right than to the left.
+`=`를 바이너리 표현식 연산자로 표시하고 우선순위를 설정했으니, 모든 작업이 끝났다고 생각할 수 있다. 하지만 그렇지 않다! 두 가지 문제를 해결해야 한다:
 
-We haven't touched right associativity before. Let's look at an example.
-Consider the expression `2 + 3 + 4`. We can happily parse this from
-left to right and build the AST tree:
+1. 왼쪽 lvalue에 대한 코드를 생성하기 전에 오른쪽 rvalue에 대한 어셈블리 코드를 먼저 생성해야 한다. 이전에는 문장 파서에서 이 작업을 수행했지만, 이제는 표현식 파서에서도 동일한 작업을 해야 한다.
+2. 할당 표현식은 *오른쪽 결합성(right associative)*을 가진다: 연산자가 왼쪽보다 오른쪽의 표현식과 더 강하게 결합한다.
+
+지금까지 오른쪽 결합성에 대해 다루지 않았다. 예제를 통해 살펴보자. `2 + 3 + 4`라는 표현식을 생각해 보자. 이 표현식은 왼쪽에서 오른쪽으로 파싱하여 AST 트리를 구성할 수 있다:
 
 ```
       +
@@ -229,8 +166,8 @@ left to right and build the AST tree:
   2   3
 ```
 
-For the expression `a= b= 3`, if we do the above, we end up with the tree:
-   
+하지만 `a= b= 3`이라는 표현식의 경우, 위와 같은 방식으로 파싱하면 다음과 같은 트리가 생성된다:
+
 ```
       =
      / \
@@ -239,8 +176,7 @@ For the expression `a= b= 3`, if we do the above, we end up with the tree:
   a   b
 ```
 
-We don't want to do `a= b` before then trying to assign the 3 to this
-left sub-tree. Instead, what we want to generate is this tree:
+이 경우, `a= b`를 먼저 수행한 후 3을 왼쪽 하위 트리에 할당하려고 시도하면 안 된다. 대신, 다음과 같은 트리를 생성해야 한다:
 
 ```
         =
@@ -250,39 +186,31 @@ left sub-tree. Instead, what we want to generate is this tree:
     3   b
 ```
 
-I've reversed the leaf nodes to be in assembly output order. We first
-store 3 in `b`. Then the result of this assignment, 3, is stored in `a`.
+리프 노드를 어셈블리 출력 순서에 맞게 뒤집었다. 먼저 3을 `b`에 저장한다. 그런 다음 이 할당의 결과인 3을 `a`에 저장한다.
 
-### Modifying the Pratt Parser
 
-We are using a Pratt parser to correctly parse the precedences of our
-binary operators. I did a search to find out how to add right-associativity
-to a Pratt parser, and found this information in
-[Wikipedia](https://en.wikipedia.org/wiki/Operator-precedence_parser):
+### Pratt 파서 수정하기
+
+우리는 이항 연산자의 우선순위를 올바르게 파싱하기 위해 Pratt 파서를 사용하고 있다. Pratt 파서에 오른쪽 결합성을 추가하는 방법을 찾기 위해 검색을 해보았고, [위키피디아](https://en.wikipedia.org/wiki/Operator-precedence_parser)에서 다음과 같은 정보를 발견했다:
 
 ```
-   while lookahead is a binary operator whose precedence is greater than op's,
-   or a right-associative operator whose precedence is equal to op's
+   lookahead가 이항 연산자이고 그 우선순위가 op보다 크거나,
+   오른쪽 결합성 연산자이고 그 우선순위가 op와 같을 때까지 반복
 ```
 
-So, for right-associative operators, we test if the next operator
-has the same precedence as the operator we are up to. That's a simple
-modification to the parser's logic. I've introduced a new function
-in `expr.c` to determine if an operator is right-associative:
+즉, 오른쪽 결합성 연산자의 경우, 다음 연산자의 우선순위가 현재 연산자의 우선순위와 같은지 확인한다. 이는 파서의 로직을 간단히 수정하면 된다. `expr.c` 파일에 오른쪽 결합성인지 확인하는 새로운 함수를 추가했다:
 
 ```c
-// Return true if a token is right-associative,
-// false otherwise.
+// 토큰이 오른쪽 결합성인지 확인한다.
+// 오른쪽 결합성이면 true, 아니면 false를 반환한다.
 static int rightassoc(int tokentype) {
   if (tokentype == T_ASSIGN)
     return(1);
   return(0);
 }
-
 ```
 
-In `binexpr()` we alter the while loop as mentioned before, and we
-also put in A_ASSIGN-specific code to swap the child trees around:
+`binexpr()` 함수에서는 앞서 언급한대로 while 루프를 수정하고, A_ASSIGN에 특화된 코드를 추가해 자식 트리를 교체한다:
 
 ```c
 struct ASTnode *binexpr(int ptp) {
@@ -291,32 +219,29 @@ struct ASTnode *binexpr(int ptp) {
   int ASTop;
   int tokentype;
 
-  // Get the tree on the left.
+  // 왼쪽 트리를 가져온다.
   left = prefix();
   ...
 
-  // While the precedence of this token is more than that of the
-  // previous token precedence, or it's right associative and
-  // equal to the previous token's precedence
+  // 현재 토큰의 우선순위가 이전 토큰의 우선순위보다 크거나,
+  // 오른쪽 결합성이고 이전 토큰의 우선순위와 같을 때까지 반복
   while ((op_precedence(tokentype) > ptp) ||
          (rightassoc(tokentype) && op_precedence(tokentype) == ptp)) {
     ...
-    // Recursively call binexpr() with the
-    // precedence of our token to build a sub-tree
+    // 현재 토큰의 우선순위로 binexpr()를 재귀적으로 호출해 서브 트리를 만든다.
     right = binexpr(OpPrec[tokentype]);
 
     ASTop = binastop(tokentype);
     if (ASTop == A_ASSIGN) {
-      // Assignment
-      // Make the right tree into an rvalue
+      // 대입 연산
+      // 오른쪽 트리를 rvalue로 만든다.
       right->rvalue= 1;
       ...
 
-      // Switch left and right around, so that the right expression's 
-      // code will be generated before the left expression
+      // 왼쪽과 오른쪽을 교체해 오른쪽 표현식의 코드가 왼쪽 표현식보다 먼저 생성되도록 한다.
       ltemp= left; left= right; right= ltemp;
     } else {
-      // We are not doing an assignment, so both trees should be rvalues
+      // 대입 연산이 아니므로 양쪽 트리를 모두 rvalue로 만든다.
       left->rvalue= 1;
       right->rvalue= 1;
     }
@@ -326,44 +251,29 @@ struct ASTnode *binexpr(int ptp) {
 }
 ```
 
-Notice also the code to explicitly mark the right-hand side of the
-assignment expression as an rvalue. And, for non assignments, both
-sides of the expression get marked as rvalues.
+대입 표현식의 오른쪽을 명시적으로 rvalue로 표시하는 코드도 주목할 만하다. 그리고 대입 연산이 아닌 경우, 표현식의 양쪽을 모두 rvalue로 표시한다.
 
-Scattered through `binexpr()` are a few more lines of code to
-explicitly set a tree to be an rvalue. These get performed when
-we hit a leaf node. For example the `a` identifier in `b= a;` needs
-to be marked as an rvalue, but we will never enter the body of the
-while loop to do this.
+`binexpr()` 함수 곳곳에는 리프 노드에 도달했을 때 트리를 명시적으로 rvalue로 설정하는 코드가 더 있다. 예를 들어 `b= a;`에서 `a` 식별자는 rvalue로 표시되어야 하지만, while 루프 본문에 진입하지 않아도 이를 처리할 수 있다.
 
-## Printing Out the Tree
 
-That is the parser changes out of the road. We now have several nodes
-marked as rvalues, and some not marked at all. At this point, I realised
-that I was having trouble visualising the AST trees that get generated.
-I've written a function called `dumpAST()` in `tree.c` to print out
-each AST tree to standard output. It's not sophisticated. The compiler
-now has a `-T` command line argument which sets an internal flag,
-`O_dumpAST`. And the `global_declarations()` code in `decl.c` now does:
+## 트리 출력하기
+
+이제 파서의 변경 사항은 마무리했다. 현재 여러 노드가 rvalue로 표시되었고, 일부는 전혀 표시되지 않았다. 이 시점에서 생성된 AST 트리를 시각화하는 데 어려움을 느꼈다. 그래서 `tree.c` 파일에 `dumpAST()`라는 함수를 작성해 각 AST 트리를 표준 출력으로 출력하도록 했다. 이 함수는 복잡하지 않다. 이제 컴파일러는 `-T` 커맨드라인 인수를 통해 내부 플래그 `O_dumpAST`를 설정할 수 있다. 그리고 `decl.c` 파일의 `global_declarations()` 코드는 다음과 같이 동작한다:
 
 ```c
-       // Parse a function declaration and
-       // generate the assembly code for it
+       // 함수 선언을 파싱하고
+       // 해당 함수에 대한 어셈블리 코드를 생성한다
        tree = function_declaration(type);
        if (O_dumpAST) {
          dumpAST(tree, NOLABEL, 0);
          fprintf(stdout, "\n\n");
        }
        genAST(tree, NOLABEL, 0);
-
 ```
 
-The tree dumper code prints out each node in the order tree traversal
-order, so the output isn't tree shaped. However, the indentation of
-each node indicates its depth in the tree.
+트리 덤퍼 코드는 각 노드를 트리 순회 순서대로 출력하므로, 결과물은 트리 모양이 아니다. 하지만 각 노드의 들여쓰기는 트리 내에서의 깊이를 나타낸다.
 
-Let's take a look at some example AST trees for assignment expressions.
-We'll start with `a= b= 34;`:
+이제 할당 표현식에 대한 예제 AST 트리를 살펴보자. 먼저 `a= b= 34;`를 보자:
 
 ```
       A_INTLIT 34
@@ -374,12 +284,9 @@ We'll start with `a= b= 34;`:
 A_ASSIGN
 ```
 
-The 34 is small enough to be a char-sized literal, but it gets widened
-to match the type of `b`. `A_IDENT b` doesn't say "rvalue", so it's a
-lvalue. The value of 34 is stored in the `b` lvalue. This value is then
-stored in the `a` lvalue.
+34는 char 크기의 리터럴이지만, `b`의 타입에 맞게 확장된다. `A_IDENT b`는 "rvalue"라고 표시되지 않았으므로 lvalue다. 34의 값은 `b` lvalue에 저장된다. 이 값은 그 다음 `a` lvalue에 저장된다.
 
-Now let's try `a= b + 34;`:
+이번에는 `a= b + 34;`를 살펴보자:
 
 ```
     A_IDENT rval b
@@ -390,10 +297,9 @@ Now let's try `a= b + 34;`:
 A_ASSIGN
 ```
 
-You can see the "rval `b`" now, so `b`'s value is loaded into a register,
-whereas the result of the `b+34` expression is stored in the `a` lvalue.
+이제 "rval `b`"가 보이므로, `b`의 값이 레지스터에 로드된다. 그리고 `b+34` 표현식의 결과는 `a` lvalue에 저장된다.
 
-Let's do one more, `*x= *y`:
+마지막으로 `*x= *y`를 살펴보자:
 
 ```
     A_IDENT y
@@ -403,29 +309,23 @@ Let's do one more, `*x= *y`:
 A_ASSIGN
 ```
 
-The identifier `y` is dereferenced and this rvalue is loaded. This is then
-stored in the lvalue which is `x` dereferenced.
+식별자 `y`는 역참조되고, 이 rvalue가 로드된다. 이 값은 그 다음 `x`가 역참조된 lvalue에 저장된다.
 
-## Converting The Above into Code
 
-Now that the lvalue and rvalues nodes are clearly identified, we can turn
-our attention to how we translate each into assembly code. There are many
-nodes like integer literals, addition etc. which are clearly rvalues. It
-is only the AST node types which could possibly be lvalues that the code
-in `genAST()` in `gen.c` needs to worry about. Here is what I have for these
-node types:
+## 코드로 변환하기
+
+이제 lvalue와 rvalue 노드를 명확히 식별했으니, 이를 어셈블리 코드로 어떻게 변환하는지 살펴볼 차례다. 정수 리터럴, 덧셈 등과 같은 많은 노드가 명백히 rvalue에 속한다. `gen.c` 파일의 `genAST()` 함수에서 신경 써야 할 것은 lvalue가 될 가능성이 있는 AST 노드 타입뿐이다. 다음은 이러한 노드 타입에 대한 코드다:
 
 ```c
     case A_IDENT:
-      // Load our value if we are an rvalue
-      // or we are being dereferenced
-      if (n->rvalue || parentASTop== A_DEREF)
+      // rvalue이거나 역참조 중이라면 값을 로드한다
+      if (n->rvalue || parentASTop == A_DEREF)
         return (cgloadglob(n->v.id));
       else
         return (NOREG);
 
     case A_ASSIGN:
-      // Are we assigning to an identifier or through a pointer?
+      // 식별자에 할당하거나 포인터를 통해 할당하는지 확인한다
       switch (n->right->op) {
         case A_IDENT: return (cgstorglob(leftreg, n->right->v.id));
         case A_DEREF: return (cgstorderef(leftreg, rightreg, n->right->type));
@@ -433,21 +333,21 @@ node types:
       }
 
     case A_DEREF:
-      // If we are an rvalue, dereference to get the value we point at
-      // otherwise leave it for A_ASSIGN to store through the pointer
+      // rvalue라면 포인터가 가리키는 값을 역참조한다
+      // 그렇지 않다면 A_ASSIGN이 포인터를 통해 값을 저장할 수 있도록 남겨둔다
       if (n->rvalue)
         return (cgderef(leftreg, n->left->type));
       else
         return (leftreg);
 ```
 
-### Changes to the x86-64 Code Generator
 
-The only change to `cg.c` is a function which allows us to store a value through
-a pointer:
+### x86-64 코드 생성기의 변경 사항
+
+`cg.c` 파일에서 변경된 부분은 포인터를 통해 값을 저장할 수 있게 해주는 함수뿐이다:
 
 ```c
-// Store through a dereferenced pointer
+// 역참조된 포인터를 통해 값을 저장
 int cgstorderef(int r1, int r2, int type) {
   switch (type) {
     case P_CHAR:
@@ -466,29 +366,15 @@ int cgstorderef(int r1, int r2, int type) {
 }
 ```
 
-which is nearly exactly the opposite of `cgderef()` which appears immediately
-before this new function.
+이 함수는 바로 앞에 위치한 `cgderef()` 함수와 거의 정반대의 기능을 수행한다.
 
-## Conclusion and What's Next
 
-For this part of the journey, I think I took two or three different design
-directions, tried them, hit a dead end and backed out before I reached the
-solution described here. I know that, in SubC, Nils passes a single "lvalue"
-structure which holds the "lvalue"-ness of the node of the AST tree being 
-processed at any point in time. But his tree only holds one expression; the
-AST tree for this compiler holds one whole function's worth of nodes. And I'm
-sure that, if you looked in three other compilers, you would probably find
-three other solutions too.
+## 결론과 다음 단계
 
-There are many things that we could take on next. There are a bunch of C operators
-that would be relatively easy to add to the compiler. We have A_SCALE, so we
-could attempt structures. As yet, there are no local variables, which will need
-attending to at some point. And, we should generalise functions to have multiple
-arguments and the ability to access them.
+이번 과정에서 나는 두세 가지 다른 설계 방향을 시도했다. 각각을 실험해 보았지만, 막다른 골목에 부딪히고 여기서 설명한 해결책에 도달하기 전에 되돌아와야 했다. SubC에서 Nils는 AST 트리의 노드가 처리되는 시점에 "lvalue" 상태를 담은 단일 구조체를 전달한다. 하지만 그의 트리는 단일 표현식만을 담고 있다. 반면 이 컴파일러의 AST 트리는 전체 함수에 해당하는 노드들을 포함한다. 다른 세 컴파일러를 살펴본다면 아마도 세 가지 다른 해결책을 발견할 수 있을 것이다.
 
-In the next part of our compiler writing journey,
-I'd like to tackle arrays. This will be a combination of dereferencing,
-lvalues and rvalues, and scaling the array indices by the size of the
-array's elements. We have all the semantic components in place, but we'll
-need to add tokens, parsing and the actual index functionality. It should
-be an interesting topic like this one was. [Next step](../19_Arrays_pt1/Readme.md)
+다음 단계에서 우리가 다룰 수 있는 주제는 다양하다. 상대적으로 쉽게 추가할 수 있는 C 연산자들이 여럿 있다. A_SCALE이 있으므로 구조체를 시도해 볼 수 있다. 아직 지역 변수가 없으므로, 이를 추가해야 한다. 또한 함수가 여러 인자를 받고 이를 접근할 수 있도록 일반화해야 한다.
+
+컴파일러 작성의 다음 단계에서는 배열을 다루고 싶다. 이는 역참조, lvalue와 rvalue, 그리고 배열 요소의 크기에 따른 인덱스 스케일링을 결합한 작업이 될 것이다. 우리는 이미 필요한 의미론적 요소들을 갖추고 있지만, 토큰 추가, 파싱, 그리고 실제 인덱싱 기능을 구현해야 한다. 이번 주제만큼 흥미로운 주제가 될 것이다. [다음 단계](../19_Arrays_pt1/Readme.md)
+
+

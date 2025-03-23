@@ -1,151 +1,97 @@
-# Part 61: What's Next?
+# 61부: 다음 단계는 무엇인가?
 
-We've achieved the goal of writing a self-compiling
-compiler. Now that this goal has been reached, what
-else could we do with the codebase?
+자체 컴파일이 가능한 컴파일러를 작성하는 목표를 달성했다. 이제 이 목표를 달성한 후, 코드베이스로 무엇을 더 할 수 있을까?
 
-From the start, I'm going to say that there are already
-a number of working, production-ready C compilers:
-[GCC](https://gcc.gnu.org), [LLVM](https://llvm.org)
-etc. We don't need another production-ready C compiler.
-But the point of writing this compiler was pedagogical:
-to explain the basics of how compilers work, and to
-put this knowledge into practice.
+처음부터 말하자면, 이미 여러 개의 완성도 높고 프로덕션 준비가 된 C 컴파일러가 존재한다: [GCC](https://gcc.gnu.org), [LLVM](https://llvm.org) 등이 그 예시다. 우리는 또 다른 프로덕션 준비가 된 C 컴파일러가 필요하지 않다. 이 컴파일러를 작성한 목적은 교육적이었다: 컴파일러가 어떻게 동작하는지 기본 원리를 설명하고, 이 지식을 실제로 적용해 보는 것이었다.
 
-So, I see the future work on the compiler to continue
-to explain how compilers work and to put this into
-practice.
+따라서, 이 컴파일러의 향후 작업은 계속해서 컴파일러의 동작 원리를 설명하고 이를 실습에 적용하는 방향으로 나아갈 것이다.
 
-With this direction set, let's look at the possibilities.
+이 방향을 설정했으니, 가능성을 살펴보자.
 
-## Code Cleanup
 
-I wrote the compiler fairly quickly, with only a little
-thought about the overarching design of the code. I think
-the design is reasonable, but the whole codebase needs
-a clean up. There's a fair bit of
-[DRY code](https://en.wikipedia.org/wiki/Don%27t_repeat_yourself)
-in places which could be refactored. Some of the code is
-ugly and could be improved. Also, some of the comments no
-longer reflect the code. This wouldn't change the compiler's
-functionality, but it would make it easier to understand.
+## 코드 정리
 
-## Fix the Bugs
+컴파일러를 꽤 빠르게 작성하면서 코드의 전체적인 설계에 대해 깊이 고민하지 않았다. 설계 자체는 합리적이지만, 전체 코드베이스가 정리가 필요하다. [DRY 원칙](https://en.wikipedia.org/wiki/Don%27t_repeat_yourself)을 위반하는 코드가 여기저기 있어 리팩토링이 필요하다. 일부 코드는 가독성이 떨어져 개선의 여지가 있다. 또한, 일부 주석은 현재 코드와 맞지 않아 수정이 필요하다. 이러한 작업은 컴파일러의 기능을 변경하지는 않지만, 코드를 이해하기 쉽게 만드는 데 도움이 될 것이다.
 
-The compiler, as it stands, purports to implement a
-specific subset of the C language. But I'm sure there
-are plenty of bugs in this implementation. We could
-spend some time identifying these bugs and fixing them,
-while keeping the compiler's functionality constant.
 
-## Write Out the Final BNF Grammar
+## 버그 수정
 
-This suggestions goes along with the previous one.
-We should document the exact subset of the C language
-that the compiler supports, as a BNF grammar. I did
-write snippets of BNF grammar thoughout the journey,
-but near the end I stopped doing it. It would be 
-good to write out the full, final, BNF grammar.
+현재의 컴파일러는 C 언어의 특정 하위 집합을 구현한다고 주장한다. 하지만 이 구현에는 분명히 많은 버그가 존재할 것이다. 우리는 컴파일러의 기능을 그대로 유지하면서 이러한 버그를 찾아내고 수정하는 데 시간을 투자할 수 있다.
 
-## Support Variadic Functions
 
-The compiler still doesn't check that the number of
-arguments to a function matches the number of
-function parameters. We need this because the compiler
-also doesn't support variadic functions like `printf()`
-and friends.
+## 최종 BNF 문법 작성
 
-So, we need to add in the `...` token, somehow mark
-a function has having either "exactly N" or "N or more"
-parameters, and then write the code to use this information.
+이 제안은 앞서 언급한 내용과 이어진다. 컴파일러가 지원하는 C 언어의 정확한 부분집합을 BNF 문법으로 문서화해야 한다. 여정 중에 BNF 문법의 일부를 작성했지만, 마지막 부분에서는 이를 멈췄다. 최종적으로 완성된 BNF 문법을 작성하는 것이 좋을 것이다.
 
-## Add `short`s
 
-It shouldn't be too hard to add a 16-bit signed `short` type. But Nils
-mentions, in his SubC book, that adding `unsigned` integer to a C
-compiler is tricky.
+## 가변 인수 함수 지원
 
-## Rewrite the Register Allocation and Spilling
+현재 컴파일러는 함수에 전달된 인자의 개수가 함수 매개변수의 개수와 일치하는지 검사하지 않는다. 이 기능이 필요한 이유는 컴파일러가 `printf()`와 같은 가변 인수 함수를 아직 지원하지 않기 때문이다.
 
-Right now, the mechanism for register allocation and
-register spilling is really awful, especially the
-spilling of registers before and after a function call.
-The assembly code is terribly inefficient. I'd like
-to see this rewritten using some of the theory on
-register allocation, e.g
-[graph colouring](https://en.wikipedia.org/wiki/Register_allocation#Graph-coloring_allocation).
-Even better, if this was written up like the past
-journey steps, it would help newcomers (like me)
-understand it better.
+따라서 `...` 토큰을 추가하고, 함수가 "정확히 N개" 또는 "N개 이상"의 매개변수를 가진다고 표시한 다음, 이 정보를 활용하는 코드를 작성해야 한다.
 
-## AST Optimisations
 
-I did mention the idea of optimising the generated code
-by restructing the AST trees. An example of this is
-[strength reduction](https://en.wikipedia.org/wiki/Strength_reduction).
-The [SubC](http://www.t3x.org/subc/) compiler does this,
-and it would be easy to add to our compiler, along with
-a writeup. There might be other AST tree optimisations
-that could be done.
+## `short` 타입 추가
 
-## Code Generation Optimisation
+16비트 부호 있는 `short` 타입을 추가하는 것은 그리 어렵지 않다. 하지만 Nils는 그의 SubC 책에서, C 컴파일러에 `unsigned` 정수 타입을 추가하는 것은 까다롭다고 언급한다.
 
-Another place to do output optimisation is in the code
-generator. A good example is
-[peephole optimisation](https://en.wikipedia.org/wiki/Peephole_optimization).
-To do this, however, the way the assembly code is generated
-would have to change. Instead of `fprintf()`ing the output,
-it should be stored in a data structure to make it easier for
-the peephole optimiser to traverse the assembly code. That's
-as far as I've thought, but it would be interesting to do.
 
-## Add Debugging Output
+## 레지스터 할당과 스필링 재구현
 
-I started to do this in step 59. We should be able to output
-`gdb` directives into the assembly output to allow `gdb` to
-see the original C source lines, and step through a program
-line by line. Right now, the compiler is outputting this
-information but the `gdb` directives are not placed correctly
-in the assembly output. There's another step in here with a
-writeup on how to do this properly.
+현재 레지스터 할당과 레지스터 스필링 메커니즘은 매우 비효율적이다. 특히 함수 호출 전후에 레지스터를 스필링하는 부분이 문제다. 생성된 어셈블리 코드는 심각하게 비효율적이다. 이 부분을 [그래프 색칠 기법](https://en.wikipedia.org/wiki/Register_allocation#Graph-coloring_allocation)과 같은 레지스터 할당 이론을 활용해 재구현하면 좋을 것이다. 더 나아가, 이전 단계를 설명한 방식과 유사하게 작성한다면, 나와 같은 초보자도 쉽게 이해할 수 있을 것이다.
 
-## Complete the ARM Backend, plus Others
 
-I did start the ARM back-end, and at the time I promised that
-I would keep it in sync with the x86-64 back-end. Well, I
-broke that promise as I got too interested in extending the
-compiler's functionality. Now that the compiler's functionality
-is relatively stable, I should go back and complete the ARM
-back-end. Even better would be a third back-end to prove that
-the compiler is fairly portable.
+## AST 최적화
 
-## Extending the Recognised Grammar
+생성된 코드를 최적화하기 위해 AST 트리를 재구성하는 아이디어를 언급한 바 있다. 이를테면 [강도 감소(Strength Reduction)](https://en.wikipedia.org/wiki/Strength_reduction)가 그 예시다. [SubC](http://www.t3x.org/subc/) 컴파일러는 이 기법을 사용하며, 우리의 컴파일러에도 이를 쉽게 추가할 수 있다. 물론 관련 설명도 함께 작성할 수 있다. 이 외에도 AST 트리에 적용할 수 있는 다른 최적화 기법들이 있을 것이다.
 
-I've left this suggestion to near the end as it doesn't
-continue the theme of explaining how compilers work. There is
-always scope to add more elements of the C language to the
-compiler. We don't need to do this to make the compiler
-self-compiling, but it would make the compiler more useful
-as a general-purpose compiler.
 
-## Work Out How to Call `ld` Directly
+## 코드 생성 최적화
 
-A long time ago, when I was playing around with BSD and Linux
-systems, I used to be able to link excecutables by hand with
-the `ld` command. I've been unable to work out how to do this
-on current Linux systems, and I'm relying on `cc` to do the
-linking for me. I'd love to learn how to link by hand with `ld`
-on Linux.
+출력 최적화를 할 수 있는 또 다른 부분은 코드 생성기이다. 대표적인 예로 [피홀 최적화(peephole optimization)](https://en.wikipedia.org/wiki/Peephole_optimization)가 있다. 이를 구현하려면 어셈블리 코드를 생성하는 방식을 변경해야 한다. `fprintf()`를 사용해 출력하는 대신, 어셈블리 코드를 데이터 구조에 저장해 피홀 최적화기가 쉽게 순회할 수 있도록 해야 한다. 이 정도까지 고민해봤는데, 실제로 구현해보면 흥미로울 것 같다.
 
-## Port the Compiler to non-Linux Systems
 
-Following on from the last point, it would be good to "port"
-the compiler to non-Linux systems like some of the BSD platforms.
+## 디버깅 출력 추가
 
-## Conclusion
+59단계에서 이 작업을 시작했다. 어셈블리 출력에 `gdb` 지시문을 추가해 `gdb`가 원본 C 소스 코드 라인을 확인하고, 프로그램을 한 줄씩 실행할 수 있게 해야 한다. 현재 컴파일러는 이 정보를 출력하지만, `gdb` 지시문이 어셈블리 출력에 올바르게 배치되지 않는다. 이를 올바르게 수행하는 방법에 대한 설명이 포함된 또 다른 단계가 있다.
 
-These are all the possible things that I can of (at the moment)
-to continue the work on our compiler. I will get on to some of
-them, but at this point I'd be very happy to have other people
-help out with the project, and/or fork the compiler's code and
-do their own thing with it! [Next step](../62_Cleanup/Readme.md)
+
+## ARM 백엔드 완성 및 기타 작업
+
+ARM 백엔드 작업을 시작했을 때, x86-64 백엔드와 동기화를 유지하겠다고 약속했다. 하지만 컴파일러 기능 확장에 너무 몰두하다 보니 그 약속을 지키지 못했다. 이제 컴파일러 기능이 상대적으로 안정화되었으니, ARM 백엔드 작업을 마무리해야 한다. 더 나아가 세 번째 백엔드를 추가해 컴파일러의 이식성을 입증하는 것도 좋은 방법이다.
+
+
+## 인식 가능한 문법 확장
+
+이 제안을 마지막에 남겨둔 이유는 컴파일러의 작동 원리를 설명하는 주제와 직접적으로 연결되지 않기 때문이다. C 언어의 더 많은 요소를 컴파일러에 추가할 여지는 항상 존재한다. 컴파일러가 스스로 컴파일할 수 있게 만들기 위해 반드시 이 작업을 수행해야 하는 것은 아니지만, 일반적인 목적의 컴파일러로서 더 유용하게 만들 수 있다.
+
+
+## `ld`를 직접 호출하는 방법 알아보기
+
+오래전에 BSD와 Linux 시스템을 다룰 때는 `ld` 명령어를 사용해 직접 실행 파일을 링크할 수 있었다. 하지만 최신 Linux 시스템에서는 이 방법을 어떻게 적용해야 할지 잘 모르겠다. 현재는 `cc`를 사용해 링크 작업을 대신 수행하고 있다. Linux에서 `ld`를 직접 사용해 수동으로 링크하는 방법을 배우고 싶다.
+
+`ld`는 GNU 링커로, 컴파일된 오브젝트 파일을 하나의 실행 파일로 결합하는 데 사용한다. `cc`나 `gcc` 같은 컴파일러는 내부적으로 `ld`를 호출해 링크 작업을 수행한다. 하지만 특정 상황에서는 `ld`를 직접 사용해 더 세밀한 제어를 할 필요가 있다.
+
+`ld`를 직접 사용하려면 먼저 오브젝트 파일을 준비해야 한다. 예를 들어 `gcc -c` 명령어로 소스 코드를 컴파일해 오브젝트 파일을 생성할 수 있다. 그런 다음 `ld` 명령어를 사용해 이 오브젝트 파일들을 링크한다. 기본적인 사용법은 다음과 같다:
+
+ld -o output_file obj1.o obj2.o -lc
+
+여기서 `-o` 옵션은 출력 파일 이름을 지정하고, `-lc`는 C 표준 라이브러리를 링크한다는 의미다. 하지만 `ld`를 직접 사용할 때는 링크할 라이브러리와 시작 주소 등을 명시적으로 지정해야 한다. 이 과정은 `gcc`를 사용할 때보다 복잡할 수 있다.
+
+또한 `ld`를 사용할 때는 링커 스크립트를 통해 링크 과정을 더 세밀하게 제어할 수도 있다. 링커 스크립트는 메모리 레이아웃, 심볼 배치 등을 정의하는 데 사용된다.
+
+그러나 대부분의 경우 `gcc`나 `cc`를 사용해 링크 작업을 수행하는 것이 더 간편하고 안정적이다. `ld`를 직접 사용하는 것은 특별한 요구사항이 있을 때만 고려하는 것이 좋다. 예를 들어 커스텀 메모리 레이아웃을 사용하거나 특정 링커 옵션을 테스트할 때 유용하다.
+
+따라서 `ld`를 직접 사용해 링크 작업을 수행하려면 링커의 동작 원리와 다양한 옵션에 대해 깊이 이해해야 한다. 이는 시스템 프로그래밍과 저수준 작업에 관심이 있는 개발자에게 유용한 기술이다.
+
+
+## 컴파일러를 비 Linux 시스템으로 이식하기
+
+이전 내용에 이어서, 컴파일러를 BSD 플랫폼과 같은 비 Linux 시스템으로 이식하는 것이 좋다.
+
+
+## 결론
+
+지금까지 컴파일러 작업을 계속하기 위해 생각할 수 있는 모든 가능성을 살펴봤다. 이 중 일부를 직접 진행할 예정이지만, 이 시점에서 다른 사람들이 프로젝트에 도움을 주거나 컴파일러 코드를 포크해서 자신만의 작업을 진행해 주길 매우 기쁘게 생각한다! [다음 단계](../62_Cleanup/Readme.md)
+
+

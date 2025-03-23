@@ -1,9 +1,6 @@
-# Part 49: The Ternary Operator
+# 49장: 삼항 연산자
 
-In this part of our compiler writing journey, I've implemented the
-[ternary operator](https://en.wikipedia.org/wiki/%3F:). This is one
-of the really natty operators in the C language which can reduce
-lines of code in your source file. The basic syntax is:
+컴파일러 작성 과정의 이번 파트에서는 [삼항 연산자](https://en.wikipedia.org/wiki/%3F:)를 구현했다. 이 연산자는 C 언어에서 코드 라인 수를 줄이는 데 유용한 깔끔한 연산자 중 하나다. 기본 구문은 다음과 같다:
 
 ```
 ternary_expression:
@@ -11,21 +8,17 @@ ternary_expression:
         ;
 ```
 
-We evaluate the logical expression. If this is true, we then evaluate only
-the true expression. Otherwise, we only evaluate the false expression.
-The result of either the true or the false expression becomes the result
-of the whole expression.
+논리 표현식을 먼저 평가한다. 이 값이 참이면 참 표현식만 평가하고, 그렇지 않으면 거짓 표현식만 평가한다. 참 또는 거짓 표현식의 결과가 전체 표현식의 결과가 된다.
 
-One subtlety here is that, for example, in:
+여기서 주의할 점은, 예를 들어 다음과 같은 코드에서:
 
 ```c
    x= y != 5 ? y++ : ++y;
 ```
 
-If `y != 5` then `x= y++`, otherwise `x= ++y`. Either way, `y` is only
-incremented once.
+`y != 5`가 참이면 `x= y++`가 실행되고, 그렇지 않으면 `x= ++y`가 실행된다. 어느 쪽이든 `y`는 한 번만 증가한다.
 
-We can rewrite the above code as an IF statement:
+위 코드를 IF 문으로 다시 작성할 수 있다:
 
 ```c
 if (y != 5)
@@ -34,47 +27,42 @@ else
   x= ++y;
 ```
 
-However, the ternary operator is an expression, so we can also do:
+그러나 삼항 연산자는 표현식이므로 다음과 같이 사용할 수도 있다:
 
 ```c
   x= 23 * (y != 5 ? y++ : ++y) - 18;
 ```
 
-This can't be easily converted into an IF statement now. However, we can
-borrow some of the mechanics from the IF code generator to use for the
-ternary operator.
+이 경우 IF 문으로 쉽게 변환할 수 없다. 하지만 IF 코드 생성기의 일부 메커니즘을 삼항 연산자에서 활용할 수 있다.
 
-## Tokens, Operators and Operator Precedence
 
-We already have ':' in our grammar as a token; now we need to add the '?'
-token. This is going to be treated as an operator, so we'd better set
-its precedence.
+## 토큰, 연산자, 그리고 연산자 우선순위
 
-According to [this list of C operators](https://en.cppreference.com/w/c/language/operator_precedence), the '?' operator has precedence just above the
-assignment operators.
+문법에서 이미 ':'를 토큰으로 사용하고 있다. 이제 '?' 토큰을 추가해야 한다. 이 토큰은 연산자로 취급되므로 우선순위를 설정하는 것이 좋다.
 
-The way we have designed our precedence, our operator tokens must be
-in precedence order and the AST operators must correspond to the tokens.
+[C 연산자 우선순위 목록](https://en.cppreference.com/w/c/language/operator_precedence)에 따르면, '?' 연산자는 할당 연산자 바로 위의 우선순위를 가진다.
 
-Thus, in `defs.h`, we now have:
+우리가 설계한 우선순위 체계에 따르면, 연산자 토큰은 우선순위 순서대로 배열되어야 하며, AST 연산자는 토큰과 일치해야 한다.
+
+따라서 `defs.h` 파일에는 다음과 같은 코드가 추가된다:
 
 ```c
-// Token types
+// 토큰 타입
 enum {
   T_EOF,
 
-  // Binary operators
+  // 이항 연산자
   T_ASSIGN, T_ASPLUS, T_ASMINUS,
   T_ASSTAR, T_ASSLASH,
-  T_QUESTION,                   // The '?' token
+  T_QUESTION,                   // '?' 토큰
   ...
 enum {
   A_ASSIGN = 1, A_ASPLUS, A_ASMINUS, A_ASSTAR, A_ASSLASH,
-  A_TERNARY,                    // The ternary AST operator
+  A_TERNARY,                    // 삼항 AST 연산자
   ...
 ```
 
-And in `expr.c`, we now have:
+그리고 `expr.c` 파일에는 다음과 같은 코드가 추가된다:
 
 ```c
 static int OpPrec[] = {
@@ -84,14 +72,12 @@ static int OpPrec[] = {
   ...
 ```
 
-As always, I will leave you to browse the changes in `scan.c` for the
-new T_QUESTION token.
+항상 그렇듯이, 새로운 T_QUESTION 토큰에 대한 변경 사항은 `scan.c` 파일에서 확인할 수 있다.
 
-## Parsing the Ternary Operator
 
-Even though the ternary operator isn't a binary operator, because it
-has precedence, we need to implement it in `binexpr()` with the binary
-operators. Here's the code:
+## 삼항 연산자 파싱하기
+
+삼항 연산자는 이항 연산자가 아니지만, 우선순위가 있기 때문에 `binexpr()` 함수에서 이항 연산자와 함께 구현해야 한다. 다음은 관련 코드다:
 
 ```c
 struct ASTnode *binexpr(int ptp) {
@@ -100,13 +86,12 @@ struct ASTnode *binexpr(int ptp) {
 
     switch (ASTop) {
     case A_TERNARY:
-      // Ensure we have a ':' token, scan in the expression after it
+      // ':' 토큰이 있는지 확인하고, 이후의 표현식을 스캔한다
       match(T_COLON, ":");
       ltemp= binexpr(0);
 
-      // Build and return the AST for this statement. Use the middle
-      // expression's type as the return type. XXX We should also
-      // consider the third expression's type.
+      // 이 문장에 대한 AST를 생성하고 반환한다. 중간 표현식의 타입을 반환 타입으로 사용한다.
+      // XXX 세 번째 표현식의 타입도 고려해야 한다.
       return (mkastnode(A_TERNARY, right->type, left, right, ltemp, NULL, 0));
       ...
     }
@@ -114,65 +99,43 @@ struct ASTnode *binexpr(int ptp) {
 }
 ```
 
-When we hit the A_TERNARY case, we have the AST tree of the logical expression
-stored in `left`, the true expression in `right` and we have parsed the '?'
-token. Now we need to parse the ':' token and the false expression.
+`A_TERNARY` 케이스에 도달하면, 논리 표현식의 AST 트리는 `left`에 저장되고, 참일 때의 표현식은 `right`에 저장된다. 그리고 '?' 토큰은 이미 파싱된 상태다. 이제 ':' 토큰과 거짓일 때의 표현식을 파싱해야 한다.
 
-With all three tokens parsed, we can now build an AST node to hold all three.
-One problem is how to determine the type of this node. As you can see, it's
-easy to choose the type of the middle token. To do it properly, I should
-see, of the true and false expressions, which one is wider and choose that one.
-I'll leave it for now and revisit it.
+세 토큰을 모두 파싱한 후, 이 세 가지를 모두 담을 AST 노드를 생성할 수 있다. 여기서 한 가지 문제는 이 노드의 타입을 어떻게 결정할지다. 보다시피 중간 토큰의 타입을 선택하는 것은 쉽다. 하지만 제대로 하려면 참과 거짓 표현식 중 더 넓은 범위의 타입을 선택해야 한다. 지금은 이 부분을 나중으로 미뤄두고 넘어가겠다.
 
-## Generating The Assembly Code: Issues
 
-Generating the assembly code for the ternary operator is very similar to
-that of the IF statement: we evaluate a logical expression. If true, we
-evaluate one expression; if false, we evaluate the other. We are going to
-need some labels, and we are going to have to insert jumps to these labels
-as required.
+## 어셈블리 코드 생성: 문제점
 
-I did actually try to modify the `genIF()` code in `gen.c` to do both IF
-and the ternary operator, but it was easier just to write another function.
+삼항 연산자의 어셈블리 코드를 생성하는 것은 IF 문과 매우 유사하다. 논리 표현식을 평가하고, 참일 경우 하나의 표현식을 실행하고, 거짓일 경우 다른 표현식을 실행한다. 이를 위해 몇 가지 레이블이 필요하며, 이러한 레이블로 점프를 삽입해야 한다.
 
-There is one wrinkle to the generation of the assembly code. Consider:
+실제로 `gen.c` 파일의 `genIF()` 코드를 수정하여 IF 문과 삼항 연산자를 모두 처리하려고 시도했지만, 새로운 함수를 작성하는 것이 더 쉬웠다.
+
+어셈블리 코드 생성에는 한 가지 까다로운 점이 있다. 다음 코드를 살펴보자:
 
 ```c
    x= (y > 4) ? 2 * y - 18 : y * z - 3 * a;
 ```
 
-We have three expressions, and we need to allocate registers to evaluate
-each one. After the logical expression is evaluated and we have jumped to
-the correct next section of code, we can free all the registers used in
-the evaluation. For the true and false expressions, we can free all the
-registers *except one*: the register holding the expression's rvalue.
+여기에는 세 가지 표현식이 있으며, 각각을 평가하기 위해 레지스터를 할당해야 한다. 논리 표현식을 평가하고 올바른 코드 섹션으로 점프한 후, 평가에 사용된 모든 레지스터를 해제할 수 있다. 참과 거짓 표현식의 경우, 하나의 레지스터를 제외한 모든 레지스터를 해제할 수 있다. 이 레지스터는 표현식의 rvalue(우측 값)를 보유하고 있다.
 
-We also can't predict which register this will be, because each expression
-has different operands and operators; thus, the number of registers used
-will differ, and the (last) register allocated to hold the result may be
-different.
+하지만 이 레지스터가 어떤 것인지 미리 예측할 수 없다. 각 표현식은 서로 다른 피연산자와 연산자를 가지고 있기 때문에 사용되는 레지스터의 수가 다르며, 결과를 저장하는 데 할당된 (마지막) 레지스터도 달라질 수 있다.
 
-But we need to know which register does hold the result of both the true
-and false expressions, so when we jump to the code that will use this
-result, it knows which register to access.
+그러나 참과 거짓 표현식의 결과를 저장하는 레지스터가 무엇인지 알아야 한다. 그래야 이 결과를 사용할 코드로 점프할 때 어떤 레지스터에 접근해야 하는지 알 수 있다.
 
-Thus, we need to do three things:
+따라서 다음 세 가지 작업을 수행해야 한다:
 
-  + allocate a register to hold the result *before* we run either the
-    true of false expression,
-  + copy the true and false expression result into this register, and
-  + free all registers *except* the register with the result.
+  + 참 또는 거짓 표현식을 실행하기 전에 결과를 저장할 레지스터를 할당한다,
+  + 참과 거짓 표현식의 결과를 이 레지스터에 복사한다,
+  + 결과를 저장한 레지스터를 제외한 모든 레지스터를 해제한다.
 
-## Freeing Registers
 
-We already have a function to free all registers, `freeall_registers()`,
-which takes no arguments. Our registers are numbered zero upwards. I've
-modified this function to take, as an argument, the register we want to
-*keep*. And, in order to free *all* registers, we pass it NOREG which is defined to be the number `-1`:
+## 레지스터 해제
+
+이미 모든 레지스터를 해제하는 `freeall_registers()` 함수가 존재한다. 이 함수는 인자를 받지 않는다. 레지스터는 0부터 시작하여 번호가 매겨져 있다. 이 함수를 수정하여 *유지할* 레지스터를 인자로 받도록 했다. 그리고 *모든* 레지스터를 해제하기 위해 `NOREG`을 전달한다. `NOREG`은 `-1`로 정의되어 있다:
 
 ```c
-// Set all registers as available.
-// But if reg is positive, don't free that one.
+// 모든 레지스터를 사용 가능 상태로 설정.
+// 단, reg가 양수인 경우 해당 레지스터는 해제하지 않음.
 void freeall_registers(int keepreg) {
   int i;
   for (i = 0; i < NUMFREEREGS; i++)
@@ -181,96 +144,80 @@ void freeall_registers(int keepreg) {
 }
 ```
 
-Throughout the compiler, you will now see `freeall_registers(-1)` to
-replace what used to be `freeall_registers()`.
+이제 컴파일러 전체에서 `freeall_registers()`를 대신해 `freeall_registers(-1)`을 사용하는 것을 볼 수 있다.
 
-## Generating The Assembly Code
 
-We now have a function in `gen.c` to deal with the ternary operator.
-It gets called from the top of `genAST()`:
+## 어셈블리 코드 생성
+
+이제 `gen.c` 파일에 삼항 연산자를 처리하는 함수를 추가했다. 이 함수는 `genAST()` 함수의 상단에서 호출된다.
 
 ```c
-  // We have some specific AST node handling at the top
-  // so that we don't evaluate the child sub-trees immediately
+  // 특정 AST 노드를 처리하기 위해 상단에 코드를 추가
+  // 이렇게 하면 자식 서브 트리를 즉시 평가하지 않음
   switch (n->op) {
   ...
   case A_TERNARY:
     return (gen_ternary(n));
 ```
 
-Let's have a look at the function in stages.
+이제 이 함수를 단계별로 살펴보자.
 
 ```c
-// Generate code for a ternary expression
+// 삼항 표현식을 위한 코드 생성
 static int gen_ternary(struct ASTnode *n) {
   int Lfalse, Lend;
   int reg, expreg;
 
-  // Generate two labels: one for the
-  // false expression, and one for the
-  // end of the overall expression
+  // 두 개의 레이블 생성: 하나는 거짓 표현식을 위한 레이블,
+  // 다른 하나는 전체 표현식의 끝을 위한 레이블
   Lfalse = genlabel();
   Lend = genlabel();
 
-  // Generate the condition code followed
-  // by a jump to the false label.
+  // 조건 코드를 생성한 후 거짓 레이블로 점프
   genAST(n->left, Lfalse, NOLABEL, NOLABEL, n->op);
   genfreeregs(-1);
 ```
 
-This is pretty much exactly the same as the IF generating code. We pass the logical expression sub-tree, the
-false label and the A_TERNARY operator into `genAST()`. When `genAST()` sees
-this, it knows to generate a jump if false to this label.
+이 코드는 IF 문을 생성하는 코드와 거의 동일하다. 논리 표현식 서브 트리, 거짓 레이블, 그리고 A_TERNARY 연산자를 `genAST()` 함수에 전달한다. `genAST()` 함수는 이를 보고, 조건이 거짓일 경우 해당 레이블로 점프하는 코드를 생성한다.
 
 ```c
-  // Get a register to hold the result of the two expressions
+  // 두 표현식의 결과를 저장할 레지스터 할당
   reg = alloc_register();
 
-  // Generate the true expression and the false label.
-  // Move the expression result into the known register.
+  // 참 표현식을 생성하고 거짓 레이블을 생성
+  // 표현식 결과를 알려진 레지스터로 이동
   expreg = genAST(n->mid, NOLABEL, NOLABEL, NOLABEL, n->op);
   cgmove(expreg, reg);
-  // Don't free the register holding the result, though!
+  // 결과를 저장하는 레지스터는 해제하지 않음
   genfreeregs(reg);
   cgjump(Lend);
   cglabel(Lfalse);
 ```
 
-With the logical expression done, we can now allocate the register to
-hold both the true and false expression results. We call `genAST()` to
-generate the true expression code, and we get back the register with the
-result. We now have to move this register's value into the known register.
-With this done, we can free all registers except the known register. If
-we did the true expression, we now jump to the end of the ternary
-assembly code.
+논리 표현식이 완료되면, 참과 거짓 표현식의 결과를 저장할 레지스터를 할당한다. `genAST()` 함수를 호출해 참 표현식 코드를 생성하고, 결과가 저장된 레지스터를 반환받는다. 이제 이 레지스터의 값을 알려진 레지스터로 이동시킨다. 이 작업이 완료되면, 알려진 레지스터를 제외한 모든 레지스터를 해제한다. 참 표현식을 처리했다면, 이제 삼항 연산자 어셈블리 코드의 끝으로 점프한다.
 
 ```c
-  // Generate the false expression and the end label.
-  // Move the expression result into the known register.
+  // 거짓 표현식을 생성하고 끝 레이블을 생성
+  // 표현식 결과를 알려진 레지스터로 이동
   expreg = genAST(n->right, NOLABEL, NOLABEL, NOLABEL, n->op);
   cgmove(expreg, reg);
-  // Don't free the register holding the result, though!
+  // 결과를 저장하는 레지스터는 해제하지 않음
   genfreeregs(reg);
   cglabel(Lend);
   return (reg);
 }
 ```
 
-And the code to evaluate the false expression is very similar. Either
-way, execution will get to the end label and, once we get here, we know
-that the ternary result is in the known register.
+거짓 표현식을 평가하는 코드도 매우 유사하다. 어느 쪽이든 실행은 끝 레이블에 도달하고, 여기에 도달하면 삼항 연산자의 결과가 알려진 레지스터에 저장되어 있음을 알 수 있다.
 
-## Testing the New Code
 
-I was worried about nested ternary operators, which I've used quite a bit
-in other code. The ternary operator is *right associative*, which means
-we bind the '?' to the right more tightly than to the left.
+## 새로운 코드 테스트
 
-Fortunately, as we greedily seek out the ':' token and the false expression
-once we have parsed the '?' token, our parser is already treating the
-ternary operator as right associative.
+다른 코드에서 자주 사용했던 중첩 삼항 연산자가 걱정되었다. 삼항 연산자는 *오른쪽 결합(right associative)*을 가지며, 이는 '?'를 왼쪽보다 오른쪽에 더 강하게 바인딩한다는 의미이다.
 
-`tests/input121.c` is an example of a nested ternary operator:
+다행히도, '?' 토큰을 파싱한 후 ':' 토큰과 false 표현식을 탐색할 때, 파서는 이미 삼항 연산자를 오른쪽 결합으로 처리하고 있다.
+
+`tests/input121.c`는 중첩 삼항 연산자의 예제이다:
 
 ```c
 #include <stdio.h>
@@ -288,11 +235,9 @@ int main() {
 }
 ```
 
-If `y<4`, then `x` becomes `y+2`. If not, we evaluate the second ternary
-operator. If `y>7`, `x` becomes 1000, otherwise it becomes `y+9`.
+`y<4`라면, `x`는 `y+2`가 된다. 그렇지 않으면 두 번째 삼항 연산자를 평가한다. `y>7`이라면 `x`는 1000이 되고, 그렇지 않으면 `y+9`가 된다.
 
-The effect is to do `y+2` for `y` values 0 to 3, `y+9` for `y` values
-4 to 7, and 1000 for higher y values:
+결과적으로 `y` 값이 0부터 3일 때는 `y+2`, 4부터 7일 때는 `y+9`, 그 이상일 때는 1000이 된다:
 
 ```
 2
@@ -307,20 +252,13 @@ The effect is to do `y+2` for `y` values 0 to 3, `y+9` for `y` values
 1000
 ```
 
-## Conclusion and What's Next
 
-Like a few of the steps so far, I was apprehensive to tackle the ternary
-operator because I thought it would be very difficult. I did have problems
-putting it into the IF generating code, so I stepped back a bit. Actually,
-I went out to see a movie with my wife and this gave me a chance to mull
-things over. I realised that I had to free all but one registers, and I
-should write a separate function. After that, writing the code was
-straight forward. It's always good to step away from the keyboard now and
-then.
+## 결론 및 다음 단계
 
-In the next part of our compiler writing journey, I will feed the compiler
-to itself, look at the parse errors I get and choose one or more of them
-to fix.
+지금까지 몇 단계를 진행하면서 삼항 연산자를 다루는 것이 매우 어려울 것 같아 걱정이 많았다. 실제로 IF 생성 코드에 삼항 연산자를 적용하는 데 문제가 있었기 때문에 잠시 뒤로 물러섰다. 사실, 아내와 영화를 보러 나갔고, 이 시간 동안 문제를 곰곰이 생각해볼 기회가 생겼다. 결국 하나의 레지스터를 제외하고 나머지를 모두 해제해야 한다는 사실을 깨달았고, 별도의 함수를 작성해야 한다는 결론에 도달했다. 그 후에는 코드를 작성하는 것이 순조로웠다. 가끔 키보드에서 떨어져 시간을 보내는 것도 좋은 방법임을 다시 한번 깨달았다.
 
-> P.S. We've reached 5,000 lines of code and 90,000 words in the Readme
-files. We must be nearly there! [Next step](../50_Mop_up_pt1/Readme.md)
+컴파일러 작성 여정의 다음 단계에서는 컴파일러를 스스로에게 입력으로 제공하고, 발생하는 파싱 오류를 살펴본 후 그 중 하나 이상을 수정할 계획이다.
+
+> P.S. 현재까지 5,000줄의 코드와 90,000단어의 Readme 파일을 작성했다. 이제 거의 다 왔다! [다음 단계](../50_Mop_up_pt1/Readme.md)
+
+

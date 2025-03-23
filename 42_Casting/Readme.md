@@ -1,69 +1,59 @@
-# Part 42: Type Casting and NULL
+# 42부: 타입 캐스팅과 NULL
 
-In this part of our compiler writing journey, I've implemented type casting.
-I thought this would allow me to do:
+컴파일러 개발 과정의 이번 부분에서는 타입 캐스팅을 구현했다. 처음에는 다음과 같은 코드를 작성할 수 있을 거라 생각했다:
 
 ```c
 #define NULL (void *)0
 ```
 
-but I hadn't done enough to get `void *` to work properly. So I've added
-type casting and also got `void *` to work.
+하지만 `void *`가 제대로 동작하도록 하기에는 아직 충분한 작업을 하지 못했다. 그래서 타입 캐스팅을 추가하고 `void *`도 제대로 동작하도록 만들었다.
 
-## What is Type Casting?
 
-Type casting is where you forcibly change the type of an expression to
-be something else. Common reasons are to narrow an integer value down
-to a smaller range type, or to assign a pointer from one type into
-a pointer storage of another type, e.g.
+## 타입 캐스팅이란?
+
+타입 캐스팅은 표현식의 타입을 강제로 다른 타입으로 변경하는 것을 말한다. 주로 정수 값을 더 작은 범위의 타입으로 줄이거나, 한 타입의 포인터를 다른 타입의 포인터 저장소에 할당할 때 사용한다. 예를 들어:
 
 ```c
   int   x= 65535;
-  char  y= (char)x;     // y is now 255, the lower 8 bits
+  char  y= (char)x;     // y는 이제 255, 하위 8비트
   int  *a= &x;
-  char *b= (char *)a;   // b point at the address of x
-  long *z= (void *)0;   // z is a NULL pointer, not pointing at anything
+  char *b= (char *)a;   // b는 x의 주소를 가리킴
+  long *z= (void *)0;   // z는 NULL 포인터, 아무것도 가리키지 않음
 ```
 
-Notice above that I've used the casts in assignment statements. For
-expressions within functions, we will need to add an A_CAST node to our
-AST tree to say "cast the original expression type to this new type".
+위 예제에서 캐스팅을 할당문에 사용했다. 함수 내부의 표현식에서는 AST 트리에 A_CAST 노드를 추가해 "원래 표현식의 타입을 새로운 타입으로 캐스팅한다"는 것을 명시해야 한다.
 
-For global variable assignments, we will need to modify the assignment
-parser to allow a cast to come before the literal value.
+전역 변수 할당의 경우, 리터럴 값 앞에 캐스팅을 허용하도록 할당 파서를 수정해야 한다.
 
-## A New Function, `parse_cast()`
 
-I've added this new function in `decl.c`:
+## 새로운 함수 `parse_cast()` 추가
+
+`decl.c` 파일에 새로운 함수를 추가했다:
 
 ```c
-// Parse a type which appears inside a cast
+// 캐스트 연산자 안에 나타나는 타입을 파싱한다
 int parse_cast(void) {
   int type, class;
   struct symtable *ctype;
 
-  // Get the type inside the parentheses
+  // 괄호 안의 타입을 가져온다
   type= parse_stars(parse_type(&ctype, &class));
 
-  // Do some error checking. I'm sure more can be done
+  // 에러 검사를 수행한다. 더 많은 검사가 가능할 것이다
   if (type == P_STRUCT || type == P_UNION || type == P_VOID)
     fatal("Cannot cast to a struct, union or void type");
   return(type);
 }
 ```
 
-The parsing of the surrounding '(' ... ')' is done elsewhere. We get the
-type identifier and the following '*' tokens to get the type of the cast.
-Then we prevent casts to structs, unions and to `void`.
+캐스트 연산자를 감싸는 괄호 '(' ... ')'의 파싱은 다른 곳에서 처리한다. 타입 식별자와 뒤따르는 '*' 토큰을 가져와 캐스트의 타입을 결정한다. 그런 다음 구조체, 공용체, 그리고 `void` 타입으로의 캐스트를 방지한다.
 
-We need a function to do this as we have to do it in expressions and also
-in global variable assignments. I didn't want any
-[DRY code](https://en.wikipedia.org/wiki/Don%27t_repeat_yourself).
+이 함수가 필요한 이유는 표현식과 전역 변수 할당에서 동일한 로직을 반복하지 않기 위해서다. [DRY 코드](https://en.wikipedia.org/wiki/Don%27t_repeat_yourself) 원칙을 지키기 위해 별도의 함수로 분리했다.
 
-## Cast Parsing in Expressions
 
-We already parse parentheses in our expression code, so we will need to
-modify this. In `primary()` in `expr.c`, we now do this:
+## 표현식에서 형 변환 파싱
+
+우리는 이미 표현식 코드에서 괄호를 파싱하고 있으므로, 이를 수정해야 한다. `expr.c` 파일의 `primary()` 함수에서 이제 다음과 같이 처리한다:
 
 ```c
 static struct ASTnode *primary(void) {
@@ -72,15 +62,15 @@ static struct ASTnode *primary(void) {
   switch (Token.token) {
   ...
     case T_LPAREN:
-    // Beginning of a parenthesised expression, skip the '('.
+    // 괄호로 둘러싸인 표현식의 시작이므로 '('를 건너뛴다.
     scan(&Token);
 
 
-    // If the token after is a type identifier, this is a cast expression
+    // 다음 토큰이 타입 식별자인 경우, 이는 형 변환 표현식이다.
     switch (Token.token) {
       case T_IDENT:
-        // We have to see if the identifier matches a typedef.
-        // If not, treat it as an expression.
+        // 식별자가 typedef와 일치하는지 확인해야 한다.
+        // 일치하지 않으면 일반 표현식으로 처리한다.
         if (findtypedef(Text) == NULL) {
           n = binexpr(0); break;
         }
@@ -91,64 +81,55 @@ static struct ASTnode *primary(void) {
       case T_STRUCT:
       case T_UNION:
       case T_ENUM:
-        // Get the type inside the parentheses
+        // 괄호 안의 타입을 가져온다.
         type= parse_cast();
 
-        // Skip the closing ')' and then parse the following expression
+        // 닫는 ')'를 건너뛰고, 다음 표현식을 파싱한다.
         rparen();
 
-      default: n = binexpr(0); // Scan in the expression
+      default: n = binexpr(0); // 표현식을 파싱한다.
     }
 
-    // We now have at least an expression in n, and possibly a non-zero type in type
-    // if there was a cast. Skip the closing ')' if there was no cast.
+    // 이 시점에서 n에는 최소한 하나의 표현식이 있고, 형 변환이 있었다면 type은 0이 아닌 값을 가진다.
+    // 형 변환이 없었다면 닫는 ')'를 건너뛴다.
     if (type == 0)
       rparen();
     else
-      // Otherwise, make a unary AST node for the cast
+      // 형 변환이 있었다면 A_CAST 타입의 단항 AST 노드를 생성한다.
       n= mkastunary(A_CAST, type, n, NULL, 0);
     return (n);
   }
 }
 ```
 
-That's a lot to digest, so let's go through it in stages. All of the cases
-ensure that we have a type identifier after the '(' token. We call `parse_cast()`
-to get the cast type and parse the ')' token.
+이 코드는 상당히 복잡하므로 단계별로 살펴보자. 모든 경우에서 `'('` 토큰 다음에 타입 식별자가 있는지 확인한다. `parse_cast()`를 호출하여 형 변환 타입을 가져오고 `')'` 토큰을 파싱한다.
 
-We don't have an AST tree to return yet because we don't know which expression
-we are casting. So we fall through to the default case where the next expression
-is parsed.
+아직 반환할 AST 트리가 없는데, 이는 어떤 표현식을 형 변환하는지 아직 모르기 때문이다. 따라서 기본 케이스로 넘어가 다음 표현식을 파싱한다.
 
-At this point either `type` is still zero (no cast) or non-zero (there was a cast).
-If no cast, the right parenthesis has to be skipped and we can simply return
-the expression in parentheses.
+이 시점에서 `type`은 여전히 0일 수도 있고(형 변환 없음), 0이 아닐 수도 있다(형 변환 있음). 형 변환이 없었다면 닫는 괄호를 건너뛰고 괄호 안의 표현식을 반환한다.
 
-If there was a cast, we build an A_CAST node with the new `type` and with the
-following expression as the child.
+형 변환이 있었다면 새로운 `type`과 다음 표현식을 자식으로 하는 `A_CAST` 노드를 생성한다.
 
-## Generating the Assembly Code for a Cast
 
-Well, we are lucky because the expression's value will be stored in a register.
-So if we do:
+## 캐스팅을 위한 어셈블리 코드 생성
+
+우리는 표현식의 값이 레지스터에 저장될 것이므로 운이 좋다. 다음 코드를 살펴보자:
 
 ```c
   int   x= 65535;
-  char  y= (char)x;     // y is now 255, the lower 8 bits
+  char  y= (char)x;     // y는 이제 255, 하위 8비트
 ```
 
-then we can simply put the 65535 into a register. But when we
-save it to y, then the lvalue's type will be invoked to generate
-the correct code to save the right size:
+여기서 65535를 레지스터에 넣을 수 있다. 하지만 y에 저장할 때는 lvalue의 타입이 올바른 크기를 저장하기 위한 코드를 생성한다:
 
 ```
-        movq    $65535, %r10            # Store 65535 in x
+        movq    $65535, %r10            # x에 65535 저장
         movl    %r10d, -4(%rbp)
-        movslq  -4(%rbp), %r10          # Get x into %r10
-        movb    %r10b, -8(%rbp)         # Store one byte into y
+        movslq  -4(%rbp), %r10          # x를 %r10으로 가져옴
+        movb    %r10b, -8(%rbp)         # y에 1바이트 저장
 ```
 
-So, in `genAST()` in `gen.c`, we have this code to deal with casting:
+따라서 `gen.c` 파일의 `genAST()` 함수에는 캐스팅을 처리하기 위한 다음과 같은 코드가 있다:
 
 ```c
   ...
@@ -157,142 +138,125 @@ So, in `genAST()` in `gen.c`, we have this code to deal with casting:
   switch (n->op) {
     ...
     case A_CAST:
-      return (leftreg);         // Not much to do
+      return (leftreg);         // 특별히 할 일이 없음
     ...
   }
 ```
 
-## Casts in Global Assignments
 
-The above is fine when the variables are local variables,
-as the compiler does the above assignments as expressions.
-For global variables, we have to hand-parse the cast
-and apply it to a literal value that follows it.
+## 전역 변수에서의 타입 캐스팅
 
-So, for example, in `scalar_declaration` in `decl.c` we need
-this code:
+위의 내용은 변수가 지역 변수일 때는 문제없이 동작한다. 컴파일러가 해당 할당을 표현식으로 처리하기 때문이다. 하지만 전역 변수의 경우, 타입 캐스팅을 직접 파싱하고 그 뒤에 오는 리터럴 값에 적용해야 한다.
+
+예를 들어, `decl.c` 파일의 `scalar_declaration` 함수에서는 다음과 같은 코드가 필요하다:
 
 ```c
-    // Globals must be assigned a literal value
+    // 전역 변수는 리터럴 값으로 초기화해야 한다
     if (class == C_GLOBAL) {
-      // If there is a cast
+      // 캐스팅이 있는 경우
       if (Token.token == T_LPAREN) {
-        // Get the type in the cast
+        // 캐스팅된 타입을 가져온다
         scan(&Token);
         casttype= parse_cast();
         rparen();
 
-        // Check that the two types are compatible. Change
-        // the new type so that the literal parse below works.
-        // A 'void *' casstype can be assigned to any pointer type.
+        // 두 타입이 호환되는지 확인한다. 아래에서 리터럴을 파싱할 수 있도록
+        // 새로운 타입을 변경한다. 'void *' 타입은 모든 포인터 타입에 할당할 수 있다.
         if (casttype == type || (casttype== pointer_to(P_VOID) && ptrtype(type)))
           type= P_NONE;
         else
-          fatal("Type mismatch");
+          fatal("타입 불일치");
       }
 
-      // Create one initial value for the variable and
-      // parse this value
+      // 변수를 위한 초기값을 하나 생성하고 이 값을 파싱한다
       sym->initlist= (int *)malloc(sizeof(int));
       sym->initlist[0]= parse_literal(type);
       scan(&Token);
     }
 ```
- 
-First of all, note that we set `type= P_NONE` when there is a cast,
-and we call `parse_literal()` with P_NONE when there is a cast. Why?
-Because this function used to required that the literal being parsed
-was exactly the type which was the argument, i.e. a string literal
-had to be of type `char *`, a `char` had to be matched by a literal
-in the range 0 ... 255 etc.
 
-Now that we have a cast, we should be able to accept:
+먼저, 캐스팅이 있을 때 `type= P_NONE`으로 설정하고, `parse_literal()` 함수를 `P_NONE` 타입으로 호출한다. 왜 그럴까? 이전에는 이 함수가 파싱할 리터럴이 인자로 전달된 타입과 정확히 일치해야 했다. 즉, 문자열 리터럴은 `char *` 타입이어야 했고, `char` 타입은 0에서 255 사이의 리터럴 값과 일치해야 했다.
+
+하지만 이제 캐스팅이 있으므로 다음과 같은 코드를 허용할 수 있다:
 
 ```c
   char a= (char)65536;
 ```
 
-So the code in `parse_literal()` in `decl.c` now does this:
+따라서 `decl.c` 파일의 `parse_literal()` 함수는 이제 다음과 같이 동작한다:
 
 ```c
 int parse_literal(int type) {
 
-  // We have a string literal. Store in memory and return the label
+  // 문자열 리터럴인 경우, 메모리에 저장하고 레이블을 반환한다
   if (Token.token == T_STRLIT) {
     if (type == pointer_to(P_CHAR) || type == P_NONE)
     return(genglobstr(Text));
   }
 
-  // We have an integer literal. Do some range checking.
+  // 정수 리터럴인 경우, 범위 검사를 수행한다
   if (Token.token == T_INTLIT) {
     switch(type) {
       case P_CHAR: if (Token.intvalue < 0 || Token.intvalue > 255)
-                     fatal("Integer literal value too big for char type");
+                     fatal("char 타입에 비해 정수 리터럴 값이 너무 큽니다");
       case P_NONE:
       case P_INT:
       case P_LONG: break;
-      default: fatal("Type mismatch: integer literal vs. variable");
+      default: fatal("타입 불일치: 정수 리터럴 vs. 변수");
     }
   } else
-    fatal("Expecting an integer literal value");
+    fatal("정수 리터럴 값이 필요합니다");
   return(Token.intvalue);
 }
 ```
 
-and the P_NONE is used to relax the type restrictions.
+여기서 `P_NONE`은 타입 제한을 완화하기 위해 사용된다.
 
-## Dealing with `void *`
 
-A `void *` pointer is one that can be used in place of any other
-pointer type. So we have to implement this.
+## `void *` 다루기
 
-We already did this for global variable assignments above:
+`void *` 포인터는 다른 모든 포인터 타입 대신 사용할 수 있는 포인터다. 따라서 이 기능을 구현해야 한다.
+
+앞서 전역 변수 할당에서 이미 이 작업을 수행했다:
 
 ```c
-   if (casttype == type || (casttype== pointer_to(P_VOID) && ptrtype(type)))
+if (casttype == type || (casttype == pointer_to(P_VOID) && ptrtype(type)))
 ```
 
-i.e. if the types are equal, or if a `void *` pointer is being assigned
-to a pointer. This allows the following global assignment:
+즉, 타입이 동일하거나 `void *` 포인터가 포인터에 할당되는 경우다. 이로 인해 다음과 같은 전역 할당이 가능하다:
 
 ```c
-  char *str= (void *)0;
+char *str = (void *)0;
 ```
 
-even though `str` is of type `char *` and not `void *`.
+`str`이 `char *` 타입이고 `void *`가 아님에도 불구하고 말이다.
 
-Now we need to deal with `void *` (and other pointer/pointer operations)
-in expressions. To do this, I had to change `modify_type()` in `types.c`.
-As a refresher, here is what this function does:
+이제 표현식에서 `void *`(그리고 다른 포인터/포인터 연산)를 처리해야 한다. 이를 위해 `types.c` 파일의 `modify_type()` 함수를 수정했다. 이 함수가 무엇을 하는지 다시 살펴보자:
 
 ```c
-// Given an AST tree and a type which we want it to become,
-// possibly modify the tree by widening or scaling so that
-// it is compatible with this type. Return the original tree
-// if no changes occurred, a modified tree, or NULL if the
-// tree is not compatible with the given type.
-// If this will be part of a binary operation, the AST op is not zero.
+// 주어진 AST 트리와 원하는 타입을 기준으로,
+// 트리를 확장하거나 스케일링하여 이 타입과 호환되도록 수정한다.
+// 변경이 없으면 원래 트리를 반환하고, 수정된 트리 또는 타입과 호환되지 않으면 NULL을 반환한다.
+// 이 작업이 이항 연산의 일부라면 AST 연산자는 0이 아니다.
 struct ASTnode *modify_type(struct ASTnode *tree, int rtype, int op);
 ```
 
-This is the code that widens values, e.g. `int x= 'Q';` to make `x` into
-a 32-bit value. We also use it for scaling: when we do:
+이 코드는 값을 확장한다. 예를 들어 `int x = 'Q';`에서 `x`를 32비트 값으로 만드는 것이다. 또한 스케일링에도 사용된다. 다음 코드에서:
 
 ```c
-  int x[4];
-  int y= x[2];
+int x[4];
+int y = x[2];
 ```
 
-The "2" index is scaled by the size of `int` to be eight bytes offset from
-the base of the `x[]` array.
+인덱스 "2"는 `int`의 크기만큼 스케일링되어 `x[]` 배열의 기준점에서 8바이트 오프셋이 된다.
 
-So, inside a function, when we write:
+따라서 함수 내부에서 다음과 같이 작성하면:
 
 ```c
-  char *str= (void *)0;
+char *str = (void *)0;
 ```
 
-we get the AST tree:
+다음과 같은 AST 트리가 생성된다:
 
 ```
           A_ASSIGN
@@ -302,35 +266,31 @@ we get the AST tree:
      A_INTLIT
          0
 ```
-  
-the type of the left-hand `tree` will be `void *` and the `rtype` will be
-`char *`. We had better ensure that the operation can be performed.
 
-I've changed `modify_type()` to do this for pointers:
+왼쪽 `tree`의 타입은 `void *`이고 `rtype`은 `char *`가 된다. 이 연산이 수행될 수 있도록 보장해야 한다.
+
+포인터를 위해 `modify_type()`을 다음과 같이 변경했다:
 
 ```c
-  // For pointers
-  if (ptrtype(ltype) && ptrtype(rtype)) {
-    // We can compare them
-    if (op >= A_EQ && op <= A_GE)
-      return(tree);
+// 포인터의 경우
+if (ptrtype(ltype) && ptrtype(rtype)) {
+  // 비교할 수 있다
+  if (op >= A_EQ && op <= A_GE)
+    return(tree);
 
-    // A comparison of the same type for a non-binary operation is OK,
-    // or when the left tree is of  `void *` type.
-    if (op == 0 && (ltype == rtype || ltype == pointer_to(P_VOID)))
-      return (tree);
-  }
+  // 비이항 연산에서 동일한 타입의 비교는 허용되며,
+  // 왼쪽 트리가 `void *` 타입인 경우도 허용된다.
+  if (op == 0 && (ltype == rtype || ltype == pointer_to(P_VOID)))
+    return (tree);
+}
 ```
 
-Now, pointer comparison is OK but other binary operations (e.g. addition) is bad.
-A "non-binary operation" means something like an assignment. We can definitely
-assign between two things of the same type. Now, we can also assign from a `void *`
-pointer to any pointer.
+이제 포인터 비교는 허용되지만, 다른 이항 연산(예: 덧셈)은 허용되지 않는다. "비이항 연산"은 할당과 같은 것을 의미한다. 동일한 타입 간의 할당은 확실히 가능하다. 이제 `void *` 포인터에서 다른 포인터로의 할당도 가능하다.
 
-## Adding NULL
 
-Now that we can deal with `void *` pointers, we can add NULL to our include files.
-I've added this to both `stdio.h` and `stddef.h`:
+## NULL 추가하기
+
+이제 `void *` 포인터를 다룰 수 있으므로, NULL을 헤더 파일에 추가할 수 있다. `stdio.h`와 `stddef.h` 두 파일에 다음과 같이 추가했다:
 
 ```c
 #ifndef NULL
@@ -338,49 +298,43 @@ I've added this to both `stdio.h` and `stddef.h`:
 #endif
 ```
 
-But there was one final wrinkle. When I tried this global declaration:
+하지만 마지막 문제가 하나 있었다. 전역 변수 선언을 다음과 같이 시도했을 때:
 
 ```c
 #include <stdio.h>
 char *str= NULL;
 ```
 
-I got this:
+이런 결과가 나왔다:
 
 ```
 str:
         .quad   L0
 ```
 
-because every initialisation value for a `char *` pointer is
-treated as a label number. So the "0" in the NULL was being turned
-into an "L0" label. We need to fix this. Now, in `cgglobsym()`
-in `cg.c`:
+`char *` 포인터의 초기화 값은 모두 레이블 번호로 처리되기 때문이다. 따라서 NULL의 "0"이 "L0" 레이블로 변환되었다. 이 문제를 해결해야 한다. 이제 `cg.c` 파일의 `cgglobsym()` 함수를 다음과 같이 수정한다:
 
 ```c
       case 8:
-        // Generate the pointer to a string literal. Treat a zero value
-        // as actually zero, not the label L0
+        // 문자열 리터럴에 대한 포인터를 생성한다. 0 값을 실제 0으로 처리하고, L0 레이블로 처리하지 않는다.
         if (node->initlist != NULL && type== pointer_to(P_CHAR) && initvalue != 0)
           fprintf(Outfile, "\t.quad\tL%d\n", initvalue);
         else
           fprintf(Outfile, "\t.quad\t%d\n", initvalue);
 ```
 
-Yes it's ugly but it works!
+보기에는 깔끔하지 않지만, 이렇게 하면 문제가 해결된다!
 
-## Testing the Changes
 
-I won't go through all the tests themselves, but files
-`tests/input101.c` to `tests/input108.c` test the above
-functionality and also the error checking of the compiler.
+## 변경 사항 테스트
 
-## Conclusion and What's Next
+모든 테스트를 하나씩 살펴보지는 않겠지만, `tests/input101.c`부터 `tests/input108.c` 파일들은 위에서 설명한 기능과 컴파일러의 오류 검사 기능을 테스트한다.
 
-I thought casting was going to be easy, and it was. What I didn't
-reckon with was the issues surrounding `void *`. I feel that I've
-covered most bases here but not all of them, so expect to see
-some `void *` edge cases that I haven't spotted yet.
 
-In the next part of our compiler writing journey, we'll add some missing
-operators. [Next step](../43_More_Operators/Readme.md)
+## 마무리 및 다음 단계
+
+캐스팅이 쉬울 거라고 생각했고, 실제로 그랬다. 하지만 `void *`와 관련된 문제들은 예상치 못했다. 이 부분은 대부분 다루었지만, 아직 발견하지 못한 `void *` 관련 예외 사항이 있을 수 있다.
+
+컴파일러 작성 여정의 다음 단계에서는 몇 가지 빠진 연산자를 추가할 것이다. [다음 단계](../43_More_Operators/Readme.md)
+
+

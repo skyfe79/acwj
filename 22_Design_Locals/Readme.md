@@ -1,77 +1,51 @@
-# Part 22: Design Ideas for Local Variables and Function Calls
+# 22부: 지역 변수와 함수 호출을 위한 설계 아이디어
 
-This is going to be first first part of our compiler writing journey
-where I don't introduce any new code. This time, I need to step
-back from the coder's keyboard and take a big-picture view. This will
-give me a chance to think about how I'm going to implement local variables
-(in one part) and then function arguments & parameters (in the next part).
+이번은 컴파일러 작성 여정에서 새로운 코드를 소개하지 않는 첫 번째 파트이다. 이번에는 코더의 키보드에서 잠시 물러나 큰 그림을 보는 시간을 가져야 한다. 이 기회를 통해 지역 변수 구현(이번 파트)과 함수 인자 및 매개변수(다음 파트)를 어떻게 구현할지 고민할 수 있다.
 
-Both of these steps are going to involve some significant additions and
-changes to our existing compiler. We also have to deal with new concepts
-like *stack frames* and *register spills*, which so far I've omitted.
+이 두 단계 모두 기존 컴파일러에 상당한 추가와 변경이 필요하다. 또한 *스택 프레임*과 *레지스터 스필* 같은 새로운 개념도 다뤄야 한다. 지금까지는 이 부분을 생략했었다.
 
-Let's start by identifying what new functionality we want to add to the compiler.
+먼저 컴파일러에 추가할 새로운 기능이 무엇인지 파악해 보자.
 
-## What Functionality Do We Want
 
-### Local and Global Variable Scopes
+## 우리가 원하는 기능
 
-Right now, all our variables are globally visible to all functions.
-We want to add a
-[local scope](https://en.wikipedia.org/wiki/Scope_(computer_science))
-for variables, so that each function has its own variables that cannot
-be seen by other functions. Moreover, in the case of recursive functions,
-each instance of the same function gets its own local variables.
+### 지역 변수와 전역 변수의 스코프
 
-However, I only want to add two scopes: *local* and *global*. C actually creates
-a new scope for every compound statement. In the following example, there
-are three different `a` variables in three different scopes:
+현재 모든 변수는 모든 함수에서 전역적으로 접근할 수 있다. 우리는 각 함수가 자신만의 변수를 가지도록 [지역 스코프](https://en.wikipedia.org/wiki/Scope_(computer_science))를 추가하려 한다. 이렇게 하면 다른 함수에서 해당 변수를 볼 수 없다. 또한 재귀 함수의 경우, 동일한 함수의 각 인스턴스가 자신만의 지역 변수를 가진다.
+
+하지만 우리는 두 가지 스코프만 추가할 것이다: *지역*과 *전역*. C 언어는 실제로 모든 복합 문에 대해 새로운 스코프를 생성한다. 다음 예제에서는 세 가지 다른 스코프에 세 가지 다른 `a` 변수가 존재한다:
 
 ```c
 #include <stdio.h>
-int a = 2;              // Global scope
+int a = 2;              // 전역 스코프
 
 int main()
 {
-  int a= 5;             // Local scope
+  int a= 5;             // 지역 스코프
   if (a > 2) {
-    int a= 17;          // Third scope
-    printf("%d\n", a);  // Print 17
+    int a= 17;          // 세 번째 스코프
+    printf("%d\n", a);  // 17 출력
   }
-  printf("%d\n", a);    // Print 5
+  printf("%d\n", a);    // 5 출력
   return(0);
 }
 ```
 
-I'm not going to support the third, inner, scope. Two will be enough!
+나는 세 번째, 내부 스코프는 지원하지 않을 것이다. 두 가지 스코프면 충분하다!
 
-### Function Parameters as Local Variables
 
-We also need to support the declaration of zero or more *parameters* to
-a function, and these need to be treated as variables local to the
-instance of that function.
+### 함수 매개변수를 지역 변수로 처리하기
 
-C functions are "[call by value](https://en.wikipedia.org/wiki/Evaluation_strategy#Call_by_value)":
-the argument values in the caller of a function are copied into the
-function's parameters so that the called function can use and modify them.
+함수는 0개 이상의 *매개변수*를 선언할 수 있다. 이 매개변수들은 해당 함수 인스턴스에 국한된 지역 변수로 처리되어야 한다.
 
-### Introducing the Stack
+C 언어의 함수는 "[값에 의한 호출(call by value)](https://en.wikipedia.org/wiki/Evaluation_strategy#Call_by_value)" 방식을 따른다. 함수를 호출할 때 전달한 인자 값은 함수의 매개변수로 복사된다. 이렇게 복사된 값을 통해 호출된 함수는 매개변수를 사용하거나 수정할 수 있다.
 
-To create a local scope for multiple instances of the same function,
-and to provide a place to store the function's parameters, we need a
-*stack*. At this point, if you don't know much about stacks,
-you should do a bit of background reading on them. I'd start with
-this [Wikipedia article on call stacks](https://en.wikipedia.org/wiki/Call_stack).
 
-Given that one of the hardware architectures that we support is the
-Intel x86-64 architecture running Linux, we are going to have to implement
-the function call mechanism on this architecture. I found this great
-article by Eli Bendersky on the
-[stack frame layout on x86-64](https://eli.thegreenplace.net/2011/09/06/stack-frame-layout-on-x86-64/).
-This is a document that you will definitely need to read before continuing
-on with this document! As Eli's article is in the public domain, I'm reproducing
-his picture of the stack frame and the parameters in registers below for
-the function
+### 스택 소개
+
+동일한 함수의 여러 인스턴스에 대해 로컬 스코프를 만들고, 함수의 매개변수를 저장할 공간을 제공하기 위해 **스택**이 필요하다. 스택에 대해 잘 모른다면, 먼저 [위키피디아의 콜 스택 문서](https://en.wikipedia.org/wiki/Call_stack)를 읽어보는 것이 좋다.
+
+우리가 지원하는 하드웨어 아키텍처 중 하나인 Linux에서 실행되는 Intel x86-64 아키텍처를 고려할 때, 이 아키텍처에서 함수 호출 메커니즘을 구현해야 한다. Eli Bendersky가 작성한 [x86-64 스택 프레임 레이아웃](https://eli.thegreenplace.net/2011/09/06/stack-frame-layout-on-x86-64/) 문서는 이 문서를 계속 읽기 전에 반드시 읽어야 할 자료다. Eli의 문서는 공개 도메인에 있으므로, 아래에 그의 스택 프레임과 레지스터에 있는 매개변수 그림을 재현한다. 이 그림은 다음 함수를 설명한다:
 
 ```c
 long myfunc(long a, long b, long c, long d,
@@ -84,186 +58,112 @@ long myfunc(long a, long b, long c, long d,
 
 ![](Figs/x64_frame_nonleaf.png)
 
-Essentially, on the x86-64 architecture, the values of some parameters will be
-passed in registers, and some parameter values will be pushed onto the stack.
-All our local variables will be on the stack but below the stack base pointer.
+기본적으로 x86-64 아키텍처에서는 일부 매개변수 값이 레지스터로 전달되고, 일부는 스택에 푸시된다. 모든 로컬 변수는 스택에 있지만 스택 베이스 포인터 아래에 위치한다.
 
-At the same time, we want our compiler to be portable to different architectures.
-So, we will need to support a general function parameter framework for different
-architectures which use the only the stack, only registers or a combination
-of both.
+동시에, 우리는 컴파일러가 다양한 아키텍처에 이식 가능하도록 만들고 싶다. 따라서 스택만 사용하거나, 레지스터만 사용하거나, 또는 둘 다를 사용하는 다양한 아키텍처를 지원하기 위해 일반적인 함수 매개변수 프레임워크가 필요하다.
 
-### Spilling Registers
 
-Something that I have ignored so far and not implemented yet is 
-[register spilling](https://en.wikipedia.org/wiki/Register_allocation#Spilling).
-We need to spill some or all the registers that we have allocated for
-several reasons:
+### 레지스터 스필링
 
- + We have run out of registers to allocate as there is only a fixed
-   number of registers. We can spill a register onto the stack so
-   that it is free to allocate.
- + We need to spill all our allocated register, and all registers with
-   parameters, onto the stack before a function call. This frees them up
-   so they can be used by the called function.
+지금까지 다루지 않았고 아직 구현하지 않은 부분이 바로 [레지스터 스필링](https://en.wikipedia.org/wiki/Register_allocation#Spilling)이다. 몇 가지 이유로 할당된 레지스터 중 일부 또는 전부를 스필링해야 한다:
 
-On a function call return, we will need to unspill the registers to
-get the values that we need back. Similarly, if we've spilled a register
-to make it free, then we need to unspill its old value and reallocate
-it when it becomes free again.
+ + 레지스터는 고정된 개수만 존재하므로, 더 이상 할당할 레지스터가 부족한 경우가 있다. 이때 레지스터를 스택에 스필링하면 해당 레지스터를 다시 할당할 수 있게 된다.
+ + 함수 호출 전에 할당된 모든 레지스터와 파라미터가 저장된 레지스터를 스택에 스필링해야 한다. 이렇게 하면 호출된 함수가 해당 레지스터를 사용할 수 있게 된다.
 
-### Static Variables
+함수 호출이 끝나고 반환될 때는 필요한 값을 다시 얻기 위해 레지스터를 언스필링해야 한다. 마찬가지로, 레지스터를 비우기 위해 스필링한 경우, 해당 레지스터가 다시 사용 가능해지면 이전 값을 언스필링하고 재할당해야 한다.
 
-While not on the list of things to implement immediately, at some point
-I'll need to allocate
-[static variables](https://en.wikipedia.org/wiki/Static_variable).
-There will be some naming issues here for local static variables, but I'll
-try to keep this in the back of my mind as I implement all of the immediate
-ideas.
 
-### Initialising Variables
+### 정적 변수
 
-We should allow variables to be initialised when they are declared.
-For global variables, we can definitely initialise them to a constant
-value, e.g. `int x= 7;` but not to an expression as we don't have a
-[function context](https://en.wikipedia.org/wiki/Scope_(computer_science)#Function_scope)
-to run the initialisation code in.
+즉시 구현할 항목 목록에는 포함되지 않았지만, 언젠가는 [정적 변수](https://en.wikipedia.org/wiki/Static_variable)를 할당해야 할 필요가 있다. 로컬 정적 변수의 경우 이름 지정 문제가 발생할 수 있지만, 우선순위가 높은 아이디어들을 구현하면서 이 문제를 계속 염두에 두려고 한다.
 
-However, we should be able to do
-local variable initialisation, e.g. `int a= 2, b= a+5;` as we can
-insert the initialisation code for the variable at
-the start of the function code.
 
-## Ideas and Implementation
+### 변수 초기화
 
-OK, so these are the ideas and issues that are bubbling around in my
-designer's mind at this time. Here's how I think I'm going to implement
-some of them.
+변수를 선언할 때 초기화를 허용해야 한다. 전역 변수의 경우 상수 값으로 초기화하는 것은 가능하다. 예를 들어 `int x = 7;`과 같이 설정할 수 있다. 하지만 표현식으로 초기화하는 것은 불가능하다. 전역 변수는 [함수 컨텍스트](https://en.wikipedia.org/wiki/Scope_(computer_science)#Function_scope)가 없기 때문에 초기화 코드를 실행할 수 없기 때문이다.
 
-### Local Symbols
+반면, 지역 변수 초기화는 가능해야 한다. 예를 들어 `int a = 2, b = a + 5;`와 같은 방식으로 초기화할 수 있다. 이 경우 함수 코드의 시작 부분에 변수 초기화 코드를 삽입할 수 있기 때문이다.
 
-Let's start with the differentiation between local and global variables.
-The globals have to be visible to all functions, but the locals are only
-visible to one function.
 
-SubC uses the one symbol table to store information about both local and
-global variables. The global variables are allocated at one end and the
-local variables are stored at the other. There is code to ensure there is
-no collision between the two ends in the middle. I like this idea, as we then
-have a single set of unique symbol slot numbers for every symbol, regardless
-of its scope.
+## 아이디어와 구현
 
-In terms of prioritising local symbols over global symbols, we can
-search the local end of the symbol table first and, if we don't find a
-symbol, we can then search through the global end. And, once we finish parsing
-a function, we can simply wipe the local end of the symbol table.
+현재 디자이너의 머릿속에서 떠오르는 아이디어와 고민 사항들을 정리했다. 이 중 일부를 어떻게 구현할지에 대한 계획을 공유한다.
 
-### Storage Classes
 
-C has the concept of
-[storage classes](https://en.wikipedia.org/wiki/C_syntax#Storage_class_specifiers), and we'll have to implement at least some of these classes.
-SubC implements several of the storage classes:
+### 로컬 심볼
+
+먼저 로컬 변수와 전역 변수의 차이점부터 살펴보자. 전역 변수는 모든 함수에서 접근할 수 있어야 하지만, 로컬 변수는 단일 함수 내에서만 접근할 수 있다.
+
+SubC는 하나의 심볼 테이블을 사용해 로컬 변수와 전역 변수 정보를 모두 저장한다. 전역 변수는 테이블의 한쪽 끝에 할당되고, 로컬 변수는 반대쪽 끝에 저장된다. 두 영역이 중간에서 충돌하지 않도록 하는 코드가 존재한다. 이 방식은 심볼의 스코프와 상관없이 모든 심볼에 대해 고유한 슬롯 번호를 부여할 수 있어 유용하다.
+
+로컬 심볼을 전역 심볼보다 우선적으로 처리하려면, 심볼 테이블의 로컬 영역을 먼저 검색하고, 해당 심볼을 찾지 못하면 전역 영역을 검색하면 된다. 또한 함수 파싱이 끝나면 심볼 테이블의 로컬 영역을 간단히 지울 수 있다.
+
+
+### 스토리지 클래스
+
+C 언어에는 [스토리지 클래스](https://en.wikipedia.org/wiki/C_syntax#Storage_class_specifiers) 개념이 있다. 우리는 이 클래스 중 일부를 구현해야 한다. SubC는 여러 스토리지 클래스를 구현한다:
 
 ```c
-/* storage classes */
+/* 스토리지 클래스 */
 enum {
-        CPUBLIC = 1,            // publicly visible symbol
-        CEXTERN,                // extern symbol
-        CSTATIC,                // static symbols in global context
-        CLSTATC,                // static symbols in local context
-        CAUTO,                  // non-static local identifiers
-        CSPROTO,                // function prototype
-        CMEMBER,                // field of a struct/union
-        CSTCDEF                 // unused
+        CPUBLIC = 1,            // 공개적으로 접근 가능한 심볼
+        CEXTERN,                // extern 심볼
+        CSTATIC,                // 전역 컨텍스트에서의 static 심볼
+        CLSTATC,                // 지역 컨텍스트에서의 static 심볼
+        CAUTO,                  // non-static 지역 식별자
+        CSPROTO,                // 함수 프로토타입
+        CMEMBER,                // 구조체/공용체의 필드
+        CSTCDEF                 // 미사용
 };
 ```
 
-for each symbol in the symbol table. I think I can modify and use this. But
-I'll probably support fewer storage class types.
+이 클래스는 심볼 테이블의 각 심볼에 적용된다. 이 구조를 수정하여 사용할 수 있을 것이다. 하지만 아마도 더 적은 수의 스토리지 클래스 타입만 지원할 것이다.
 
-### Function Prototypes
 
-Every function has a *prototype*: the number and type of each parameter
-that it has. We need these to ensure the arguments to a function call matches
-the types and number of function parameters.
+### 함수 프로토타입
 
-Somewhere I will need to record the parameter list and types for each
-function. We can also support the declaration of a function's prototype
-before the actual declaration of the function itself.
+모든 함수는 *프로토타입*을 가진다. 여기에는 함수가 받는 매개변수의 개수와 타입이 포함된다. 함수 호출 시 전달된 인자가 함수 매개변수의 타입과 개수와 일치하는지 확인하기 위해 이 정보가 필요하다.
 
-Now, where are we going to store this? I could create a separate data
-structure for function prototypes. I don't want to support two-dimensional
-arrays in our language, but we will need a list of primitive types for
-each function.
+함수 프로토타입을 저장할 적절한 위치를 고민해야 한다. 함수 프로타타입을 위한 별도의 데이터 구조를 만들 수도 있다. 이 언어에서는 2차원 배열을 지원하지 않지만, 각 함수의 기본 타입 목록은 필요하다.
 
-So, my idea is this. We already have S_FUNCTION as the type for our
-existing symbol table elements. We can have a "number of parameters" field
-in each symbol table entry to store the number of parameters that the function has.
-We can then immediately follow this symbol with the symbol table entries
-for each function parameter.
+기존 심볼 테이블 엘리먼트의 타입으로 S_FUNCTION을 이미 사용하고 있다. 각 심볼 테이블 엔트리에 "매개변수 개수" 필드를 추가해 함수가 가진 매개변수의 수를 저장할 수 있다. 그리고 이 심볼 바로 뒤에 각 함수 매개변수에 대한 심볼 테이블 엔트리를 추가한다.
 
-When we are parsing the function's parameter list, we can add the parameters
-in the global symbol section to record the function's prototype. At the same time,
-we can also add the parameters as entries in the local symbol section, as they
-will be used as local variables by the function itself.
+함수의 매개변수 목록을 파싱할 때, 전역 심볼 섹션에 매개변수를 추가해 함수 프로토타입을 기록한다. 동시에 매개변수를 지역 심볼 섹션의 엔트리로도 추가한다. 이 매개변수들은 함수 내에서 지역 변수로 사용될 것이다.
 
-When we need to determine if the list of arguments to a function call
-matches the function's prototype, we can find the function's global
-symbol table entry and then compare the following entries in the symbol
-table to the argument list.
+함수 호출 시 전달된 인자 목록이 함수 프로토타입과 일치하는지 확인하려면, 함수의 전역 심볼 테이블 엔트리를 찾은 다음, 심볼 테이블의 다음 엔트리들을 인자 목록과 비교하면 된다.
 
-Finally, when doing a search for a global symbol, we can easily skip past
-the parameter entries for a function by loading the function's "number of parameters"
-field and skip this many symbol table entries.
+마지막으로, 전역 심볼을 검색할 때 함수의 "매개변수 개수" 필드를 로드해 해당 수만큼 심볼 테이블 엔트리를 건너뛰면 함수 매개변수 엔트리를 쉽게 건너뛸 수 있다.
 
-### Keeping Parameters in Registers: Not Possible
 
-I'm actually writing this section after trying to implement the above, so I've come
-back to revisit the design a bit. I thought that we would be able to keep the
-parameters passed as registers in their registers: this would make access to them
-faster and keep the stack frame smaller. But this isn't always possible for this
-reason. Consider this code:
+### 레지스터에 매개변수 유지: 불가능한 이유
+
+이 섹션은 실제로 위 내용을 구현하려고 시도한 후 작성했다. 그래서 설계를 다시 살펴보게 되었다. 처음에는 매개변수를 레지스터에 그대로 유지할 수 있을 거라고 생각했다. 이렇게 하면 매개변수에 접근하는 속도가 빨라지고 스택 프레임의 크기도 줄일 수 있을 것 같았다. 하지만 이 방법이 항상 가능한 것은 아니라는 사실을 깨달았다. 다음 코드를 살펴보자:
 
 ```c
-void myfunction(int a) {        // a is a parameter in a register
-  int b;                        // b is a local variable on the stack
+void myfunction(int a) {        // a는 레지스터에 있는 매개변수
+  int b;                        // b는 스택에 있는 지역 변수
 
-  // Call a function to update a and b
-  b= function2(&a);
+  // a와 b를 업데이트하는 함수 호출
+  b = function2(&a);
 }
 ```
 
-If the `a` parameter is in a register, we won't be able to get its address
-with the `&` operator. Therefore, we'll have to copy it into memory somewhere.
-And, given that parameters are variables local to the function, we will need to
-copy it to the stack.
+`a` 매개변수가 레지스터에 있다면, `&` 연산자로 주소를 가져올 수 없다. 따라서 어딘가 메모리로 복사해야 한다. 매개변수는 함수 내에서 지역 변수와 마찬가지이므로, 결국 스택으로 복사해야 한다.
 
-For a while I had ideas of walking the AST looking for which parameters in the
-tree needed to have real addresses, but then I remembered that I'm following the
-KISS principle: keep it simple, stupid! So I will copy all parameters out of
-registers and onto the stack.
+한동안 AST를 순회하며 어떤 매개변수가 실제 주소를 필요로 하는지 찾는 아이디어를 고민했다. 하지만 KISS 원칙(Keep It Simple, Stupid!)을 떠올렸다. 그래서 모든 매개변수를 레지스터에서 스택으로 복사하기로 결정했다.
 
-### Location of Local Variables
 
-How are we going to determine where a parameter or local variable is on the stack,
-once they have been copied or placed there? To do this, I will add a `posn` field into
-each local symbol table entry. This will indicate the offset of the variable below
-the frame base pointer.
+### 로컬 변수의 위치
 
-Looking at the
-[BNF Grammar for C](https://www.lysator.liu.se/c/ANSI-C-grammar-y.html),
-the function declaration list (i.e. the list of function parameters)
-comes before the declaration list for the local variables, and this
-comes before the statement list.
+파라미터나 로컬 변수가 스택에 복사되거나 배치된 후, 그 위치를 어떻게 확인할 수 있을까? 이를 위해 각 로컬 심볼 테이블 항목에 `posn` 필드를 추가한다. 이 필드는 프레임 베이스 포인터 아래로부터의 변수 오프셋을 나타낸다.
 
-This means that, as we parse the parameters and then the local variables, we can
-determine at what position they will be on the stack before we get to parse
-the statement list.
+[C 문법의 BNF](https://www.lysator.liu.se/c/ANSI-C-grammar-y.html)를 보면, 함수 선언 목록(즉, 함수 파라미터 목록)이 로컬 변수 선언 목록보다 먼저 나오고, 이는 문장 목록보다 앞에 위치한다.
 
-## Conclusion and What's Next
+이는 파라미터와 로컬 변수를 파싱할 때, 문장 목록을 파싱하기 전에 스택 상의 위치를 미리 결정할 수 있음을 의미한다.
 
-I think that's about all I want to do in terms of design before I start on
-the next parts of our compiler writing journey. I'll tackle local variables
-by themselves in the next part, and try to add in function calls and
-parameters in the following part. But it might take three or more steps
-to get all of the new proposed features implemented. We'll see. [Next step](../23_Local_Variables/Readme.md)
+
+## 마무리 및 다음 단계
+
+여기까지가 컴파일러 작성 과정에서 디자인 측면에서 하고 싶었던 모든 작업이다. 다음 단계에서는 지역 변수를 다룰 예정이고, 그다음 단계에서 함수 호출과 매개변수를 추가할 계획이다. 하지만 새로운 기능을 모두 구현하려면 세 단계 이상이 필요할 수도 있다. 진행하면서 확인해 보자. [다음 단계](../23_Local_Variables/Readme.md)
+
+

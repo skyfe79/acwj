@@ -1,27 +1,17 @@
-# Part 30: Designing Structs, Unions and Enums
+# 30장: 구조체, 공용체, 열거형 설계
 
-I'm going to sketch out my design ideas for implementing structs, unions and
-enums in ths part of our compiler writing journey. As with functions, it's
-going to take a number of following steps to get it all implemented.
+이번 장에서는 컴파일러 개발 여정의 일환으로 구조체, 공용체, 열거형을 구현하기 위한 설계 아이디어를 간략히 소개한다. 함수를 구현할 때와 마찬가지로, 이 모든 것을 완성하려면 여러 단계를 거쳐야 한다.
 
-I've also chosen to rewrite the symbol table from being a single array to being
-several singly-linked lists. I already mentioned my intention to do this: my
-ideas on how to implement the composite types made it important to rewrite the
-symbol table implementation at this point.
+또한 심볼 테이블을 단일 배열에서 여러 개의 단일 연결 리스트로 재작성하기로 결정했다. 이전에도 이 의도를 언급한 바 있다: 복합 타입을 구현하는 방법에 대한 아이디어를 고려했을 때, 이 시점에서 심볼 테이블 구현을 재작성하는 것이 중요하다고 판단했다.
 
-Before we get into the code changes, let's look at what, exactly, are composite
-types.
+코드 변경 사항을 살펴보기 전에, 복합 타입이 정확히 무엇인지 먼저 알아보자.
 
-## Composite Types, Enums and Typedefs
 
-In C, [structs](https://en.wikipedia.org/wiki/Struct_(C_programming_language))
-and [unions](https://en.wikipedia.org/wiki/Union_type#C/C++) are known
-as *composite types*. A struct or union variable can have many members
-contained within. The difference is that, in a struct, the members are
-guaranteed not to overlap in memory whereas, in a union, we desire that
-all the members share the same memory locations.
+## 복합 타입, 열거형, 그리고 타입 정의
 
-An example of a struct type is:
+C 언어에서 [구조체](https://en.wikipedia.org/wiki/Struct_(C_programming_language))와 [공용체](https://en.wikipedia.org/wiki/Union_type#C/C++)는 *복합 타입*으로 알려져 있다. 구조체나 공용체 변수는 여러 멤버를 포함할 수 있다. 차이점은 구조체의 경우 멤버들이 메모리에서 겹치지 않도록 보장되지만, 공용체는 모든 멤버가 동일한 메모리 위치를 공유하도록 설계된다.
+
+구조체 타입의 예시는 다음과 같다:
 
 ```c
 struct foo {
@@ -33,8 +23,7 @@ struct foo {
 struct foo fred;
 ```
 
-The variable `fred` is of type `struct foo`, and it has three members `a`, `b` and
-`c`. We can now do these three assignments to `fred`:
+변수 `fred`는 `struct foo` 타입이며, 세 개의 멤버 `a`, `b`, `c`를 가지고 있다. 이제 `fred`에 대해 다음과 같이 세 가지 할당을 수행할 수 있다:
 
 ```c
   fred.a= 4;
@@ -42,9 +31,9 @@ The variable `fred` is of type `struct foo`, and it has three members `a`, `b` a
   fred.c= 'x';
 ```
 
-and all three values are stored in the respective members in `fred`.
+이렇게 하면 세 값이 각각 `fred`의 멤버에 저장된다.
 
-On the other hand, here is an example of a union type:
+반면, 공용체 타입의 예시는 다음과 같다:
 
 ```c
 union bar {
@@ -56,102 +45,87 @@ union bar {
 union bar jane;
 ```
 
-If we perform these statements:
+다음과 같은 문장을 실행하면:
 
 ```c
   jane.a= 5;
   printf("%d\n", jane.b);
 ```
 
-then the value 5 will be printed as the `a` and `b` members occupy the same
-memory location in the `jane` union.
+값 5가 출력된다. 이는 `jane` 공용체에서 `a`와 `b` 멤버가 동일한 메모리 위치를 공유하기 때문이다.
 
-### Enums
 
-I'll talk about enums here even though they don't define a composite type like
-the structs and unions.
-In C, [enums](https://en.wikipedia.org/wiki/Enumerated_type#C) are essentially
-a way to give names to integer values. An enum represents a list of
-named integer values.
+### 열거형(Enums)
 
-As an example, we can define these new identifiers:
+열거형은 구조체나 공용체처럼 복합 타입을 정의하지 않지만, 여기서 설명하겠다. C 언어에서 [열거형](https://en.wikipedia.org/wiki/Enumerated_type#C)은 기본적으로 정수 값에 이름을 부여하는 방법이다. 열거형은 이름이 붙은 정수 값들의 목록을 나타낸다.
+
+예를 들어, 다음과 같이 새로운 식별자를 정의할 수 있다:
 
 ```c
 enum { apple=1, banana, carrot, pear=10, peach, mango, papaya };
 ```
 
-We now have these named integer values:
+이제 다음과 같이 이름이 붙은 정수 값을 얻는다:
 
-|  Name  | Value |
-|:------:|:-----:|
-| apple  |   1   |
-| banana |   2   |
-| carrot |   3   |
-| pear   |  10   |
-| peach  |  11   |
-| mango  |  12   |
-| papaya |  13   |
+|  이름   | 값  |
+|:------:|:---:|
+| apple  |  1  |
+| banana |  2  |
+| carrot |  3  |
+| pear   | 10  |
+| peach  | 11  |
+| mango  | 12  |
+| papaya | 13  |
 
-There are some interesting issues with enums that I didn't know, which I'll cover below.
+열거형과 관련해 몇 가지 흥미로운 문제가 있는데, 아래에서 이를 다룰 것이다.
 
-### Typedefs
 
-I should also touch on typedefs at this point, even though I won't need to
-implement them to get our compiler to compile itself. A 
-[typedef](https://en.wikipedia.org/wiki/Typedef) is a way to give an existing
-type another name. It's often used to make naming structs and unions easier.
+### 타입 정의(Typedefs)
 
-Using a previous example, we can write:
+이 시점에서 타입 정의(typedef)에 대해 간략히 언급할 필요가 있다. 비록 컴파일러가 스스로를 컴파일하는 데는 타입 정의를 구현할 필요가 없지만, 타입 정의는 기존 타입에 새로운 이름을 부여하는 방법이다. 주로 구조체(struct)와 공용체(union)의 이름을 간결하게 만들기 위해 사용한다.
+
+이전 예제를 활용해 다음과 같이 작성할 수 있다:
 
 ```c
 typedef struct foo Husk;
 Husk kim;
 ```
 
-`kim` is of type `Husk` which is the same as saying that `kim` is of type `struct foo`.
+여기서 `kim`은 `Husk` 타입이며, 이는 `kim`이 `struct foo` 타입과 동일하다는 의미이다.
 
-## Types versus Symbols?
 
-So, if structs, unions and typedefs are new types, what have they got to do with
-the symbol table which holds variable and function definitions? And enums are
-just names for integer literals, again not variables or functions.
+## 타입 vs 심볼
 
-The thing is, all of these things have *names*: the name of the struct or union,
-the name of their members, the types of the members, the names of the enumerated
-values, and the names of the typedefs.
+구조체(struct), 공용체(union), typedef는 새로운 타입을 정의한다. 그렇다면 이들이 변수와 함수 정의를 담는 심볼 테이블과 어떤 관련이 있을까? 열거형(enum)은 정수 리터럴에 이름을 붙인 것일 뿐, 변수나 함수가 아니다.
 
-We need to store these names somewhere, and we need to be able to find them. For
-the struct/union members, we need to find their underlying types. For the enumerated
-names, we need to look up their integer literal values.
+핵심은 이들 모두 *이름*을 가진다는 점이다. 구조체나 공용체의 이름, 그 멤버들의 이름, 멤버들의 타입, 열거형 값들의 이름, 그리고 typedef로 정의된 이름들 모두가 해당된다.
 
-This is why I'm going to use the symbol table to store all of these things. But,
-we need to break up the table into several specific lists, so that we can find
-particular things and avoid finding things that we don't want to find.
+이러한 이름들을 어딘가에 저장하고, 필요할 때 찾을 수 있어야 한다. 구조체/공용체 멤버의 경우, 그들의 기본 타입을 찾아야 한다. 열거형 이름의 경우, 해당하는 정수 리터럴 값을 조회해야 한다.
 
-## Redesigning the Symbol Table Structure
+이러한 이유로, 나는 심볼 테이블을 사용해 이 모든 것을 저장할 것이다. 하지만 심볼 테이블을 여러 개의 특정 목록으로 나누어, 원하는 것을 찾고 원하지 않는 것을 피할 수 있도록 해야 한다.
 
-Let's have, to start with:
 
- + a singly-linked list for the global variables and functions
- + a singly-linked list for the variables local to the current function
- + a singly-linked list for the parameters local to the current function
+## 심볼 테이블 구조 재설계
 
-With the old array-based symbol table, we had to skip over the function parameters
-when we were searching for global variables and functions. So, let's also have a
-list in a separate direction for the parameters of a function:
+먼저, 다음과 같은 구조로 시작한다:
+
++ 전역 변수와 함수를 위한 단일 연결 리스트
++ 현재 함수의 지역 변수를 위한 단일 연결 리스트
++ 현재 함수의 매개변수를 위한 단일 연결 리스트
+
+기존의 배열 기반 심볼 테이블에서는 전역 변수와 함수를 검색할 때 함수 매개변수를 건너뛰어야 했다. 따라서 함수의 매개변수를 위한 별도의 리스트를 추가한다:
 
 ```c
 struct symtable {
-  char *name;                   // Name of a symbol
-  int stype;                    // Structural type for the symbol
+  char *name;                   // 심볼의 이름
+  int stype;                    // 심볼의 구조적 타입
   ...
-  struct symtable *next;        // Next symbol in one list
-  struct symtable *member;      // First parameter of a function
+  struct symtable *next;        // 한 리스트에서 다음 심볼
+  struct symtable *member;      // 함수의 첫 번째 매개변수
 };
 ```
 
-Let's have a look, graphically, how this will
-look for the following code fragment:
+다음 코드 조각을 예로 들어, 이 구조가 어떻게 동작하는지 시각적으로 살펴보자:
 
 ```c
   int a;
@@ -163,35 +137,25 @@ look for the following code fragment:
   }
 ```
 
-This will be stored in three symbol table lists like this:
+이 코드는 세 개의 심볼 테이블 리스트에 다음과 같이 저장된다:
 
 ![](Figs/newsymlists.png)
 
-Note that we have three list "heads" which point to the three lists.
-We can now walk the global symbol list and not have to skip over the
-parameters, as each function keeps its parameters on its own list.
+세 리스트의 시작점을 가리키는 세 개의 "헤드"가 있다. 이제 전역 심볼 리스트를 순회할 때 매개변수를 건너뛰지 않아도 된다. 각 함수는 매개변수를 자체 리스트로 관리하기 때문이다.
 
-When it comes time to parse a function's body, we can point the parameter
-list at the function's parameter list. Then, as local variables get declared,
-they are simply appended to the local variable list.
+함수의 본문을 파싱할 때, 매개변수 리스트를 함수의 매개변수 리스트로 지정한다. 그런 다음, 지역 변수가 선언되면 단순히 지역 변수 리스트에 추가된다.
 
-Then, once the function's body is parsed and its assembly code generated,
-we can set the parameter and local lists back to being empty without
-disturbing the parameter list in the globally-visible function.
-This is where I'm up to with the rewrite of the symbol table. But it doesn't
-show how we can implement structs, unions and enums.
+함수의 본문 파싱과 어셈블리 코드 생성이 완료되면, 매개변수와 지역 리스트를 다시 비운다. 이 과정은 전역적으로 보이는 함수의 매개변수 리스트를 방해하지 않는다. 이것이 심볼 테이블 재작성의 현재 진행 상황이다. 하지만 구조체, 공용체, 열거형을 어떻게 구현할 수 있는지는 아직 보여주지 않는다.
 
-## Interesting Issues and Considerations
 
-Before we do see how to augment the existing symbol table node, plus
-singly-linked lists, to support structs, unions and enums, we first have
-to consider some of their more interesting issues.
+## 흥미로운 문제와 고려사항
 
-### Unions
+기존 심볼 테이블 노드와 단일 연결 리스트를 구조체(struct), 공용체(union), 열거형(enum)을 지원하도록 확장하는 방법을 살펴보기 전에, 먼저 이들과 관련된 몇 가지 흥미로운 문제를 고려해야 한다.
 
-We'll start with unions. Firstly, we can put a union into a struct.
-Secondly, the union doesn't need a name. Thirdly, a variable does not
-need to be declared in the struct to hold the union. As an example:
+
+### 유니언
+
+유니언부터 시작해보자. 첫째, 구조체 안에 유니언을 넣을 수 있다. 둘째, 유니언은 이름이 필요하지 않다. 셋째, 유니언을 담기 위해 구조체에 별도의 변수를 선언할 필요가 없다. 예를 들어:
 
 ```c
 #include <stdio.h>
@@ -200,29 +164,26 @@ struct fred {
   union {
     int a;
     int b;
-  };            // No need to declare a variable of this union type
+  };            // 이 유니언 타입의 변수를 선언할 필요 없음
 };
 
 int main() {
   struct fred foo;
   foo.x= 5;
-  foo.a= 12;                            // a is treated like a struct member
-  foo.b= 13;                            // b is treated like a struct member
-  printf("%d %d\n", foo.x, foo.a);      // Print 5 and 13
+  foo.a= 12;                            // a는 구조체 멤버처럼 취급됨
+  foo.b= 13;                            // b는 구조체 멤버처럼 취급됨
+  printf("%d %d\n", foo.x, foo.a);      // 5와 13 출력
 }
 ```
 
-We need to be able to support this. Anonymous unions (and structs) will
-be easy: we just leave the `name` in the symbol table node set to NULL.
-But there is no variable name for this union: I think we can implement this
-by having the struct's member name also set to NULL, i.e.
+이를 지원할 수 있어야 한다. 익명 유니언(그리고 구조체)은 쉽다: 심볼 테이블 노드의 `name`을 NULL로 설정하면 된다. 하지만 이 유니언을 위한 변수 이름이 없다: 구조체의 멤버 이름도 NULL로 설정함으로써 이를 구현할 수 있을 것 같다. 즉:
 
 ![](Figs/structunion1.png)
 
-### Enums
 
-I've used enums before but I haven't really thought about implementing them
-that much. So I wrote the following C program to see if I could "break" enums:
+### 열거형(Enums)
+
+열거형을 사용해 본 적은 있지만, 실제로 구현에 대해 깊이 생각해 본 적은 없었다. 그래서 열거형을 "깨뜨릴" 수 있는지 확인하기 위해 다음과 같은 C 프로그램을 작성했다:
 
 ```c
 #include <stdio.h>
@@ -245,19 +206,16 @@ int main() {
 }
 ```
 
-The questions are:
+이 프로그램을 통해 다음과 같은 질문에 대한 답을 찾아보려고 한다:
 
- + Can we redeclare an enum list with different elements, e.g. `enum fred` and
-   `enum fred`?
- + Can we declare a variable with the same name as an enum list, e.g. `fred`?
- + Can we declare a variable with the same name as an enum value, e.g. `mary`?
- + Can we reuse the name of an enum value from one enum list in another, e.g.
-   `dennis` and `dennis`?
- + Can we assign a value from one enum list to a variable declared to be
-   of a different enum list?
- + Can we assign bewteen variables declared to be of different enum lists?
+1. 열거형 목록을 다른 요소로 재선언할 수 있는가? 예를 들어 `enum fred`와 `enum fred`.
+2. 열거형 목록과 같은 이름의 변수를 선언할 수 있는가? 예를 들어 `fred`.
+3. 열거형 값과 같은 이름의 변수를 선언할 수 있는가? 예를 들어 `mary`.
+4. 한 열거형 목록에서 사용한 열거형 값의 이름을 다른 열거형 목록에서 재사용할 수 있는가? 예를 들어 `dennis`와 `dennis`.
+5. 한 열거형 목록의 값을 다른 열거형 목록으로 선언된 변수에 할당할 수 있는가?
+6. 서로 다른 열거형 목록으로 선언된 변수 간에 값을 할당할 수 있는가?
 
-And here is what `gcc` produces as errors and warnings:
+`gcc`가 출력한 오류와 경고는 다음과 같다:
 
 ```c
 z.c:4:5: error: ‘mary’ redeclared as different kind of symbol
@@ -281,205 +239,187 @@ z.c:2:25: note: previous definition of ‘dennis’ was here
                          ^~~~~~
 ```
 
-After modifying and compiling the above program a few times, the answers are:
+위 프로그램을 수정하고 컴파일해 본 결과, 다음과 같은 결론을 얻었다:
 
- + We can't redeclare `enum fred`. This seems to be the only place where
-   we need to remember the name of an enum list.
- + We can reuse the enum list identifier `fred` as a variable name.
- + We can't reuse the enum value identifier `mary` in another enum list,
-   nor as a variable name.
- + We can assign enum value anywhere: they seem to be treated simply as
-   names for literal integer values.
- + It also appears that we can replace `enum` and `enum X` as a type
-   with the word `int`.
+1. `enum fred`를 재선언할 수 없다. 이는 열거형 목록의 이름을 기억해야 하는 유일한 경우로 보인다.
+2. 열거형 목록 식별자 `fred`를 변수 이름으로 재사용할 수 있다.
+3. 열거형 값 식별자 `mary`를 다른 열거형 목록이나 변수 이름으로 재사용할 수 없다.
+4. 열거형 값은 어디에나 할당할 수 있다. 이들은 단순히 정수 리터럴 값에 대한 이름으로 취급되는 것으로 보인다.
+5. `enum`과 `enum X`를 타입으로 사용하는 대신 `int`로 대체할 수 있는 것으로 보인다.
 
-## Design Considerations
 
-OK, so I think we're at the point where we can start listing what we want:
+## 설계 고려 사항
 
- + a list of named and unnamed structs, with the names of the members in
-   each struct and the type details for each member. Also, we will need
-   the memory offset for the member from the "base" of the struct.
- + ditto for named and unnamed structs, although the offset will always be zero.
- + a list of enumerated list names and the actual enumeration names and their associated
-   values.
- + in the symbol table, we need the existing `type` information for non-composite
-   types, but we'll also need a pointer to the relevant composite type, if a
-   symbol is a struct or a union.
- + given that a struct can have a member which is a pointer to itself, we will
-   need to be able to point the member's type back to the same struct.
+이제 우리가 원하는 사항을 나열할 준비가 되었다:
 
-## Changes to the Symbol Table Node Structure
++ 이름이 있는 구조체와 없는 구조체의 목록. 각 구조체의 멤버 이름과 멤버의 타입 세부 정보를 포함한다. 또한, 구조체의 '기준' 위치에서 멤버의 메모리 오프셋도 필요하다.
++ 이름이 있는 구조체와 없는 구조체에 대해서도 동일한 정보가 필요하지만, 오프셋은 항상 0이 된다.
++ 열거형 목록의 이름과 실제 열거형 이름, 그리고 그에 해당하는 값을 포함한 목록.
++ 심볼 테이블에서, 비복합 타입에 대한 기존 `type` 정보가 필요하다. 하지만 심볼이 구조체나 공용체인 경우, 관련된 복합 타입에 대한 포인터도 필요하다.
++ 구조체가 자신을 가리키는 포인터를 멤버로 가질 수 있으므로, 멤버의 타입이 동일한 구조체를 다시 가리킬 수 있어야 한다.
 
-Below, in bold, are my changes to the current singly-linked list symbol table node:
+
+## 심볼 테이블 노드 구조 변경
+
+현재 단일 연결 리스트로 구현된 심볼 테이블 노드에 다음과 같은 변경 사항을 적용했다. 변경된 부분은 굵은 글씨로 표시했다.
 
 <pre>
 struct symtable {
-  char *name;                   // Name of a symbol
-  int type;                     // Primitive type for the symbol
-  <b>struct symtable *ctype;       // If needed, pointer to the composite type</b>
-  int stype;                    // Structural type for the symbol
-  int class;                    // Storage class for the symbol
+  char *name;                   // 심볼의 이름
+  int type;                     // 심볼의 기본 타입
+  <b>struct symtable *ctype;       // 필요한 경우, 복합 타입에 대한 포인터</b>
+  int stype;                    // 심볼의 구조적 타입
+  int class;                    // 심볼의 저장 클래스
   union {
-    int size;                   // Number of elements in the symbol
-    int endlabel;               // For functions, the end label
-    <b>int intvalue;               // For enum symbols, the associated value</b>
+    int size;                   // 심볼의 요소 개수
+    int endlabel;               // 함수의 경우, 종료 레이블
+    <b>int intvalue;               // enum 심볼의 경우, 연관된 값</b>
   };
   union {
-    int nelems;                 // For functions, # of params
-    int posn;                   // For locals, the negative offset
-                                // from the stack base pointer
+    int nelems;                 // 함수의 경우, 매개변수 개수
+    int posn;                   // 로컬 변수의 경우, 스택 베이스 포인터로부터의 음수 오프셋
   };
-  struct symtable *next;        // Next symbol in one list
-  struct symtable *member;      // First member of a function, struct,
-};                              // union or enum
+  struct symtable *next;        // 하나의 리스트에서 다음 심볼
+  struct symtable *member;      // 함수, 구조체, 공용체, 혹은 enum의 첫 번째 멤버
+};                              
 </pre>
 
-Along with this new node structure, we will have six linked lists:
+이 새로운 노드 구조와 함께 총 여섯 개의 연결 리스트를 사용한다:
 
- + a singly-linked list for the global variables and functions
- + a singly-linked list for the variables local to the current function
- + a singly-linked list for the parameters local to the current function
- + a singly-linked list for the struct types that have been defined
- + a singly-linked list for the union types that have been defined
- + a singly-linked list for the enum names and enumerated values that have been defined
+ + 전역 변수와 함수를 위한 단일 연결 리스트
+ + 현재 함수의 로컬 변수를 위한 단일 연결 리스트
+ + 현재 함수의 매개변수를 위한 단일 연결 리스트
+ + 정의된 구조체 타입을 위한 단일 연결 리스트
+ + 정의된 공용체 타입을 위한 단일 연결 리스트
+ + 정의된 enum 이름과 열거형 값을 위한 단일 연결 리스트
 
-## The Use Cases for the New Symbol Table Node
+이 변경 사항은 심볼 테이블의 유연성을 높이고, 복합 타입과 enum 값을 더 효과적으로 관리할 수 있도록 한다. 특히 `ctype` 포인터와 `intvalue` 필드의 추가는 타입 시스템의 표현력을 크게 향상시킨다.
 
-Let's look at how each field in the above struct will get used by the six lists
-I enumerated above.
 
-### New Types
+## 새로운 심볼 테이블 노드의 활용 사례
 
-We will have two new types, P_STRUCT and P_UNION, which I'll describe below.
+앞서 열거한 여섯 가지 리스트에서 위 구조체의 각 필드가 어떻게 활용되는지 살펴보자.
 
-### Global Variables and Functions, Parameter Variables, Local Variables
 
- + *name*: name of the variable or function.
- + *type*: type of the variable, or the function's return value, plus the 4-bit
-   indirection level.
- + *ctype*: if the variable is a P_STRUCT or P_UNION, this field points at the
-   associated struct or union definition in the relevant singly-linked list.
- + *stype*: structural type of the variable or function: S_VARIABLE, S_FUNCTION or
-   S_ARRAY.
- + *class*: storage class for the variable: C_GLOBAL, C_LOCAL, or C_PARAM.
- + *size*: for variables, the total size in bytes. For arrays, the number of elements
-   in the array. We will use this to implement `sizeof()` later.
- + *endlabel*: for functions, the end label which we can `return` to.
- + *nelems*: for functions, the number of parameters.
- + *posn*: for local variables and parameters, the negative offset of the variable
-   from the stack base pointer.
- + *next*: the next symbol in this list.
- + *member*: for functions, a pointer to the first parameter's node. NULL for
-    variables.
+### 새로운 타입 소개
 
-### Struct Types
+P_STRUCT와 P_UNION이라는 두 가지 새로운 타입을 소개한다. 이 타입들에 대해 아래에서 자세히 설명한다.
 
- + *name*: name of the struct type, or NULL if it is anonymous.
- + *type*: always P_STRUCT, not really required.
- + *ctype*: unused.
- + *stype*: unused.
- + *class*: unused.
- + *size*: the total size of the struct in bytes, to be used by `sizeof()` later.
- + *nelems*: the number of members in the struct.
- + *next*: the next struct type that has been defined.
- + *member*: a pointer to the first struct member's node.
 
-### Union Types
+### 전역 변수와 함수, 매개변수 변수, 지역 변수
 
- + *name*: name of the union type, or NULL if it is anonymous.
- + *type*: always P_UNION, not really required.
- + *ctype*: unused.
- + *stype*: unused.
- + *class*: unused.
- + *size*: the total size of the union in bytes, to be used by `sizeof()` later.
- + *nelems*: the number of members in the union.
- + *next*: the next union type that has been defined.
- + *member*: a pointer to the first union member's node.
++ *name*: 변수나 함수의 이름
++ *type*: 변수의 타입 또는 함수의 반환 값과 4비트 간접 참조 수준
++ *ctype*: 변수가 P_STRUCT 또는 P_UNION 타입일 경우, 이 필드는 관련 단일 연결 리스트에 있는 구조체 또는 공용체 정의를 가리킴
++ *stype*: 변수나 함수의 구조적 타입: S_VARIABLE, S_FUNCTION, S_ARRAY 중 하나
++ *class*: 변수의 저장 클래스: C_GLOBAL, C_LOCAL, C_PARAM 중 하나
++ *size*: 변수의 경우 전체 바이트 크기. 배열의 경우 배열의 요소 수. 나중에 `sizeof()`를 구현할 때 사용
++ *endlabel*: 함수의 경우, `return`으로 돌아갈 수 있는 끝 레이블
++ *nelems*: 함수의 경우, 매개변수의 수
++ *posn*: 지역 변수와 매개변수의 경우, 스택 베이스 포인터로부터의 음수 오프셋
++ *next*: 이 리스트에서 다음 심볼을 가리킴
++ *member*: 함수의 경우, 첫 번째 매개변수의 노드를 가리킴. 변수의 경우 NULL
 
-### Struct and Union Members
 
-Each member is essentially a variable, so there is a strong similarity to normal
-variables.
- 
- + *name*: name of the member.
- + *type*: type of the variable plus the 4-bit indirection level.
- + *ctype*: if the member is a P_STRUCT or P_UNION, this field points at the
-   associated struct or union definition in the relevant singly-linked list.
- + *stype*: structural type of the member: S_VARIABLE or S_ARRAY.
- + *class*: unused.
- + *size*: for variables, the total size in bytes. For arrays, the number of elements
-   in the array. We will use this to implement `sizeof()` later.
- + *posn*: the positive offset of the member from the base of the struct/union.
- + *next*: the next member in the struct/union.
- + *member*: NULL.
+### 구조체 타입
 
-### Enum List Names and Values
+ + *name*: 구조체 타입의 이름. 익명 구조체인 경우 NULL이다.
+ + *type*: 항상 P_STRUCT이다. 실제로는 필요하지 않다.
+ + *ctype*: 사용되지 않는다.
+ + *stype*: 사용되지 않는다.
+ + *class*: 사용되지 않는다.
+ + *size*: 구조체의 전체 크기(바이트 단위). 나중에 `sizeof()`에서 사용된다.
+ + *nelems*: 구조체 내 멤버의 개수.
+ + *next*: 정의된 다음 구조체 타입을 가리킨다.
+ + *member*: 첫 번째 구조체 멤버의 노드를 가리키는 포인터.
 
-I want to store all the symbols and implicit values below:
+
+### 유니온 타입
+
+ + *name*: 유니온 타입의 이름. 익명일 경우 NULL이다.
+ + *type*: 항상 P_UNION이다. 실제로는 필수적이지 않다.
+ + *ctype*: 사용되지 않는다.
+ + *stype*: 사용되지 않는다.
+ + *class*: 사용되지 않는다.
+ + *size*: `sizeof()`에서 사용할 유니온의 총 바이트 크기.
+ + *nelems*: 유니온의 멤버 수.
+ + *next*: 정의된 다음 유니온 타입을 가리킨다.
+ + *member*: 첫 번째 유니온 멤버의 노드를 가리키는 포인터.
+
+
+### 구조체와 공용체 멤버
+
+각 멤버는 기본적으로 변수와 유사한 특성을 가진다. 일반 변수와 크게 다르지 않다.
+
++ *name*: 멤버의 이름.
++ *type*: 변수의 타입과 4비트 간접 참조 수준을 포함.
++ *ctype*: 멤버가 P_STRUCT 또는 P_UNION 타입일 경우, 이 필드는 관련 단일 연결 리스트에서 해당 구조체나 공용체 정의를 가리킴.
++ *stype*: 멤버의 구조적 타입: S_VARIABLE 또는 S_ARRAY.
++ *class*: 사용되지 않음.
++ *size*: 변수의 경우 전체 바이트 크기. 배열의 경우 배열의 요소 개수. 이 값을 나중에 `sizeof()` 구현에 사용.
++ *posn*: 구조체/공용체의 시작점부터 멤버까지의 양수 오프셋.
++ *next*: 구조체/공용체 내 다음 멤버.
++ *member*: NULL.
+
+
+### 열거형 목록 이름과 값 저장
+
+아래 심볼과 암시적 값을 모두 저장하려고 한다:
 
 ```c
   enum fred { chocolate, spinach, glue };
   enum amy  { garbage, dennis, flute, couch };
 ```
 
-We could just link `fred` then `amy`, and use the `member` field in `fred` for
-the `chocolate`, `spinach`, `glue` list. Ditto the `garbage` etc. list.
+`fred`와 `amy`를 연결한 다음, `fred`의 `member` 필드를 `chocolate`, `spinach`, `glue` 목록에 사용할 수 있다. 마찬가지로 `garbage` 등도 동일하게 처리할 수 있다.
 
-However, we really only care about the `fred` and `amy` names to prevent them
-being reused as enum list names. What we really care about are the actual
-enumeration names and their values.
+하지만 실제로는 `fred`와 `amy` 이름이 열거형 목록 이름으로 재사용되지 않도록 하는 데 관심이 있다. 우리가 진정으로 관심 있는 것은 실제 열거형 이름과 그 값이다.
 
-Therefore I propose a couple of "dummy" type values: P_ENUMLIST and P_ENUMVAL.
-We then build just a single-dimensional list like this:
+따라서 두 가지 "더미" 타입 값을 제안한다: `P_ENUMLIST`와 `P_ENUMVAL`. 그런 다음 다음과 같은 단일 차원의 목록을 구성한다:
 
 ```c
      fred  -> chocolate-> spinach ->   glue  ->    amy  -> garbage -> dennis -> ...
   P_ENUMLIST  P_ENUMVAL  P_ENUMVAL  P_ENUMVAL  P_ENUMLIST  P_ENUMVAL  P_ENUMVAL
 ```
 
-Thus, when we use the word `glue`, we only have to walk the one list. Otherwise,
-we'd have to find `fred`, walk `fred`'s member list, then the same for `amy`.
-I think the one list will be easier.
+이렇게 하면 `glue`라는 단어를 사용할 때 하나의 목록만 탐색하면 된다. 그렇지 않으면 `fred`를 찾고, `fred`의 멤버 목록을 탐색한 다음, `amy`에 대해서도 동일한 작업을 수행해야 한다. 하나의 목록을 사용하는 것이 더 쉬울 것이다.
 
-## What Has Been Changed Already
 
-Up at the top of this document, I mentioned that I've already
-rewritten the symbol table from being a single array to being
-several singly-linked lists, with these new fields in the `struct symtable` node:
+## 지금까지 변경된 내용
+
+이 문서의 앞부분에서, 심볼 테이블을 단일 배열에서 여러 개의 단일 연결 리스트로 재구성했다고 언급했다. 이 과정에서 `struct symtable` 노드에 다음과 같은 새로운 필드가 추가되었다:
 
 ```c
-  struct symtable *next;        // Next symbol in one list
-  struct symtable *member;      // First parameter of a function
+  struct symtable *next;        // 한 리스트 내의 다음 심볼
+  struct symtable *member;      // 함수의 첫 번째 파라미터
 ```
 
-So, let's have a quick tour of the changes. Firstly, there are no functional
-changes whatsoever.
+이제 이러한 변경 사항을 간단히 살펴보자. 가장 먼저, 기능적인 변화는 전혀 없다는 점을 명심하자.
 
-### Three Symbol Table Lists
 
-We now have three symbol table lists in `data.h`:
+### 세 가지 심볼 테이블 리스트
+
+이제 `data.h` 파일에 세 가지 심볼 테이블 리스트가 있다:
 
 ```c
-// Symbol table lists
-struct symtable *Globhead, *Globtail;   // Global variables and functions
-struct symtable *Loclhead, *Locltail;   // Local variables
-struct symtable *Parmhead, *Parmtail;   // Local parameters
+// 심볼 테이블 리스트
+struct symtable *Globhead, *Globtail;   // 전역 변수와 함수
+struct symtable *Loclhead, *Locltail;   // 지역 변수
+struct symtable *Parmhead, *Parmtail;   // 지역 매개변수
 ```
 
-and all of the functions in `sym.c` have been rewritten to use them. I have written
-a generic function to append to a list:
+그리고 `sym.c` 파일의 모든 함수가 이 리스트를 사용하도록 재작성되었다. 리스트에 노드를 추가하는 일반적인 함수도 작성했다:
 
 ```c
-// Append a node to the singly-linked list pointed to by head or tail
+// head 또는 tail이 가리키는 단일 연결 리스트에 노드를 추가한다
 void appendsym(struct symtable **head, struct symtable **tail,
                struct symtable *node) {
 
-  // Check for valid pointers
+  // 유효한 포인터인지 확인
   if (head == NULL || tail == NULL || node == NULL)
     fatal("Either head, tail or node is NULL in appendsym");
 
-  // Append to the list
+  // 리스트에 추가
   if (*tail) {
     (*tail)->next = node; *tail = node;
   } else *head = *tail = node;
@@ -487,15 +427,12 @@ void appendsym(struct symtable **head, struct symtable **tail,
 }
 ```
 
-There is now a function `newsym()` which is given all the field values of a
-symbol table node. It `malloc()`s a new node, fills it in and returns it. I
-won't give the code here.
+이제 `newsym()` 함수가 있다. 이 함수는 심볼 테이블 노드의 모든 필드 값을 받아 새로운 노드를 `malloc()`으로 할당하고, 값을 채운 뒤 반환한다. 여기서 코드는 생략한다.
 
-For each list, there is a function to build and append a node to the list. One
-example is:
+각 리스트에 대해 노드를 생성하고 리스트에 추가하는 함수가 있다. 한 가지 예는 다음과 같다:
 
 ```c
-// Add a symbol to the global symbol list
+// 전역 심볼 리스트에 심볼을 추가한다
 struct symtable *addglob(char *name, int type, int stype, int class, int size) {
   struct symtable *sym = newsym(name, type, stype, class, size, 0);
   appendsym(&Globhead, &Globtail, sym);
@@ -503,12 +440,11 @@ struct symtable *addglob(char *name, int type, int stype, int class, int size) {
 }
 ```
 
-There is a generic function to find a symbol in a list, where the `list` pointer
-is the head of the list:
+리스트에서 심볼을 찾는 일반적인 함수도 있다. 이때 `list` 포인터는 리스트의 헤드를 가리킨다:
 
 ```c
-// Search for a symbol in a specific list.
-// Return a pointer to the found node or NULL if not found.
+// 특정 리스트에서 심볼을 검색한다.
+// 찾은 노드의 포인터를 반환하거나, 없으면 NULL을 반환한다.
 static struct symtable *findsyminlist(char *s, struct symtable *list) {
   for (; list != NULL; list = list->next)
     if ((list->name != NULL) && !strcmp(s, list->name))
@@ -517,87 +453,58 @@ static struct symtable *findsyminlist(char *s, struct symtable *list) {
 }
 ```
 
-and there are three list-specific `findXXX()` functions.
+그리고 리스트별로 `findXXX()` 함수가 있다.
 
-There is a function, `findsymbol()`, that tries to find a symbol in a function's
-parameter list first, then the function's local variables, then finally global
-variables.
+`findsymbol()` 함수는 먼저 함수의 매개변수 리스트에서 심볼을 찾고, 그다음 함수의 지역 변수 리스트에서 찾고, 마지막으로 전역 변수 리스트에서 찾는다.
 
-There is a function, `findlocl()`, that only searches a function's parameter
-list and local variables. We use this one when we are declaring local variables
-and need to prevent a redeclaration.
+`findlocl()` 함수는 함수의 매개변수 리스트와 지역 변수 리스트에서만 심볼을 검색한다. 지역 변수를 선언할 때 재선언을 방지하기 위해 이 함수를 사용한다.
 
-Finally, there is a function, `clear_symtable()`, to reset the head and tail of
-all three lists to NULL, i.e. to clear all three lists.
+마지막으로, `clear_symtable()` 함수는 세 리스트의 헤드와 테일을 모두 NULL로 초기화하여 모든 리스트를 비운다.
 
-### The Parameter and Local Lists
 
-The global symbol lists is only cleared once each individual source code file is
-parsed. But we need to a) set up the parameter list, and b) clear the local symbol
-list, each time we start parsing the body of a new function.
+### 파라미터와 로컬 리스트
 
-So here is how it works. When we are parsing a parameter list in `param_declaration()`
-in `expr.c`, we call `var_declaration()` for each parameter. This creates a symbol
-table node and appends it to the parameter list, i.e. `Parmhead` and `Parmtail`.
-When `param_declaration()` returns, `Parmhead` points at the parameter list.
+글로벌 심볼 리스트는 각 소스 코드 파일을 파싱할 때 한 번만 초기화된다. 하지만 함수 본문 파싱을 시작할 때마다 a) 파라미터 리스트를 설정하고, b) 로컬 심볼 리스트를 초기화해야 한다.
 
-Back in `function_declaration()` which is parsing the whole function (its name,
-parameter list *and* any function body), the parameter list is copied into the
-function's symbol table node:
+이 과정은 다음과 같이 동작한다. `expr.c` 파일의 `param_declaration()` 함수에서 파라미터 리스트를 파싱할 때, 각 파라미터마다 `var_declaration()`을 호출한다. 이는 심볼 테이블 노드를 생성하고 파라미터 리스트(`Parmhead`와 `Parmtail`)에 추가한다. `param_declaration()`이 반환되면, `Parmhead`는 파라미터 리스트를 가리키게 된다.
+
+전체 함수(이름, 파라미터 리스트, 함수 본문)를 파싱하는 `function_declaration()` 함수에서는 파라미터 리스트를 함수의 심볼 테이블 노드에 복사한다:
 
 ```c
     newfuncsym->nelems = paramcnt;
     newfuncsym->member = Parmhead;
 
-    // Clear out the parameter list
+    // 파라미터 리스트 초기화
     Parmhead = Parmtail = NULL;
 ```
 
-We clear the parameter list by `NULL`ing `Parmhead` and `Parmtail`, as shown.
-This would mean that all these are no longer available to search for via the global parameter list.
+`Parmhead`와 `Parmtail`을 `NULL`로 설정하여 파라미터 리스트를 초기화한다. 이렇게 하면 글로벌 파라미터 리스트를 통해 더 이상 이들을 검색할 수 없게 된다.
 
-The solution is to set a global variable, `Functionid`, to the function's
-symbol table entry:
+해결책은 전역 변수 `Functionid`를 함수의 심볼 테이블 엔트리로 설정하는 것이다:
 
 ```c
   Functionid = newfuncsym;
 ```
 
-So, when we call `compound_statement()` to parse the function's body,
-we still have the parameter list available through `Functionid->member` to
-do things like:
+따라서 함수 본문을 파싱하기 위해 `compound_statement()`를 호출할 때, `Functionid->member`를 통해 파라미터 리스트에 여전히 접근할 수 있다. 이를 통해 다음과 같은 작업을 수행할 수 있다:
 
- + prevent a local variable being declared that matches a parameter name
- + use a parameter's name as a normal local variable etc.
+ + 파라미터 이름과 동일한 로컬 변수 선언을 방지
+ + 파라미터 이름을 일반 로컬 변수로 사용
 
-Eventually, `function_declaration()` returns the AST tree which covers the
-whole function back to `global_declarations()` which then passes it to
-`genAST()` in `gen.c` to generate the assembly code. And when `genAST()` returns,
-`global_declarations()` calls `freeloclsyms()` to clear the local and parameter
-lists and reset `Functionid` back to `NULL`.
+마지막으로, `function_declaration()`은 전체 함수를 포함하는 AST 트리를 반환한다. 이 트리는 `global_declarations()`로 전달되고, `gen.c`의 `genAST()`로 전달되어 어셈블리 코드를 생성한다. `genAST()`가 반환되면, `global_declarations()`는 `freeloclsyms()`를 호출하여 로컬 및 파라미터 리스트를 초기화하고 `Functionid`를 다시 `NULL`로 설정한다.
 
-### Other Changes of Note
 
-Well, actually a heck of a lot of code had to be rewritten due to the
-change to several linked lists for the symbol table. I'm not going to
-go through the whole code base. But some things you can spot easily.
-For example, symbol nodes used to be referenced with code like `Symtable[n->id]`.
-This is now `n->sym`.
+### 주목할 만한 다른 변경 사항
 
-Also, a lot of the code in `cg.c` refers to symbol names, so you now see these as
-`n->sym->name`. Similarly, the code to dump the AST trees in `tree.c` now
-has a lot of `n->sym->name` in it.
+심볼 테이블을 여러 연결 리스트로 변경하면서 상당량의 코드를 다시 작성해야 했다. 전체 코드베이스를 일일이 살펴보지는 않겠지만, 몇 가지 눈에 띄는 변경 사항을 쉽게 확인할 수 있다. 예를 들어, 심볼 노드를 참조하던 코드가 `Symtable[n->id]`에서 `n->sym`으로 바뀌었다.
 
-## Conclusion and What's Next
+또한 `cg.c` 파일에 있는 많은 코드가 심볼 이름을 참조하는데, 이제는 `n->sym->name` 형태로 표시된다. 마찬가지로 `tree.c` 파일에서 AST 트리를 출력하는 코드에도 `n->sym->name`이 많이 포함되어 있다.
 
-This part of our journey was part design and part reimplementation. We spent
-a lot of time working out what issue we will face when implementing structs,
-unions and enums. Then we redesigned the symbol table to support these
-new concepts. Finally, we rewrote  the symbol table into three linked lists
-(for now) in preparation for the implementation of these new concepts.
 
-In the next part of our compiler writing journey, I'll probably implement
-the declaration of struct types, but not actually write the code for them to
-be used. I'll do that in the following part. With both of these done, I'll
-hopefully be able to implement unions in a third part. Then, enums in the
-fourth part. We'll see! [Next step](../31_Struct_Declarations/Readme.md)
+## 결론 및 다음 단계
+
+이번 파트는 디자인과 재구현이 혼합된 과정이었다. 구조체, 공용체, 열거형을 구현할 때 어떤 문제에 직면할지 오랜 시간 고민했다. 그런 다음 이 새로운 개념을 지원하기 위해 심볼 테이블을 재설계했다. 마지막으로 이 새로운 개념을 구현하기 위해 심볼 테이블을 세 개의 연결 리스트로 다시 작성했다.
+
+컴파일러 작성 여정의 다음 파트에서는 구조체 타입의 선언을 구현할 예정이다. 하지만 실제로 사용할 수 있는 코드를 작성하는 것은 그 다음 파트로 미룰 것이다. 이 두 단계가 완료되면, 세 번째 파트에서 공용체를 구현할 수 있을 것이다. 그다음 네 번째 파트에서 열거형을 다룰 것이다. 기대해 주세요! [다음 단계](../31_Struct_Declarations/Readme.md)
+
+

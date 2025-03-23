@@ -1,34 +1,25 @@
-# Part 60: Passing the Triple Test
+# 60장: 트리플 테스트 통과하기
 
-In this part of our compiler writing journey, we will
-get the compiler to pass the triple test! How do I know?
-I've just got it to pass the triple test by changing
-a few source code lines in the compiler. But I don't
-yet know why the original lines are not working.
+컴파일러 개발 여정의 이번 단계에서는 컴파일러가 트리플 테스트를 통과하도록 만들어 본다. 어떻게 알았냐고? 방금 컴파일러의 몇 줄을 수정해서 트리플 테스트를 통과시켰기 때문이다. 하지만 원래 코드가 왜 작동하지 않았는지는 아직 모른다.
 
-So, this part will be a investigation where we gather the
-clues, deduce the problem, fix it and finally get the
-compiler to pass the triple test properly.
+이번 장은 문제를 추적하고 해결하는 과정을 다룬다. 단서를 모으고, 문제를 추론하고, 수정한 뒤 마침내 컴파일러가 트리플 테스트를 제대로 통과하도록 만든다.
 
-Or, so I hope!
+그렇게 되길 바란다!
 
-## The First Piece of Evidence
 
-We now have three compiler binaries:
+## 첫 번째 증거
 
-  1. `cwj`, built with the Gnu C compiler,
-  2. `cwj0`, built with the `cwj` compiler, and
-  2. `cwj1`, built with the `cwj0` compiler
+현재 세 가지 컴파일러 바이너리가 있다:
 
-The last two should be identical but they are not. Thus, `cwj0`
-isn't generating the right assembly output, and this is because
-of a flaw in the compiler's source code.
+1. Gnu C 컴파일러로 빌드한 `cwj`
+2. `cwj` 컴파일러로 빌드한 `cwj0`
+3. `cwj0` 컴파일러로 빌드한 `cwj1`
 
-How can we narrow the problem down? Well, we have a pile of
-test programs in the `tests/` directory. Let's run `cwj` and
-`cwj0` over all these tests and see if there's a difference.
+마지막 두 컴파일러는 동일해야 하지만 실제로는 그렇지 않다. 따라서 `cwj0`이 올바른 어셈블리 출력을 생성하지 못하고 있는데, 이는 컴파일러 소스 코드의 결함 때문이다.
 
-Yes there is, with `tests/input002.c`:
+이 문제를 어떻게 좁혀나갈 수 있을까? `tests/` 디렉토리에 여러 테스트 프로그램이 있다. `cwj`와 `cwj0`을 모든 테스트에 대해 실행해 보면서 차이가 있는지 확인해 보자.
+
+`tests/input002.c`에서 차이가 발견된다:
 
 ```
 $ ./cwj -o z tests/input002.c ; ./z
@@ -37,10 +28,10 @@ $ ./cwj0 -o z tests/input002.c ; ./z
 24
 ```
 
-## What's The Problem?
 
-So, `cwj0` is producing incorrect assembly output. Let's start 
-with the test source code:
+## 문제가 무엇인가?
+
+`cwj0`가 잘못된 어셈블리 출력을 생성하고 있다. 테스트 소스 코드부터 살펴보자:
 
 ```c
 void main()
@@ -53,8 +44,7 @@ void main()
 }
 ```
 
-We have two local variables, `fred` and `jim`. The two compilers
-produce assembly code with these differences:
+여기에는 두 개의 지역 변수 `fred`와 `jim`이 있다. 두 컴파일러가 생성한 어셈블리 코드에는 다음과 같은 차이가 있다:
 
 ```
 42c42
@@ -67,39 +57,32 @@ produce assembly code with these differences:
 >       movslq  -8(%rbp), %r10
 ```
 
-Hmm, the second compiler is calculating the offset of `fred`
-incorrectly. The first compiler is correctly calculating the
-offset as `-4` below the frame pointer. The second compiler
-is calculating the offset as `-8` below the frame pointer.
+두 번째 컴파일러가 `fred`의 오프셋을 잘못 계산하고 있다. 첫 번째 컴파일러는 프레임 포인터 아래 `-4`로 정확히 계산하지만, 두 번째 컴파일러는 `-8`로 계산한다.
 
-## What's Causing the Problem?
 
-These offsets are being calculated by the function
-`newlocaloffset()` in `cg.c`:
+## 문제의 원인은 무엇인가?
+
+이 오프셋들은 `cg.c` 파일에 있는 `newlocaloffset()` 함수에 의해 계산된다:
 
 ```c
-// Create the position of a new local variable.
+// 새로운 지역 변수의 위치를 생성한다.
 static int localOffset;
 static int newlocaloffset(int size) {
-  // Decrement the offset by a minimum of 4 bytes
-  // and allocate on the stack
+  // 오프셋을 최소 4바이트만큼 감소시키고
+  // 스택에 할당한다
   localOffset += (size > 4) ? size : 4;
   return (-localOffset);
 }
 ```
 
-At the start of each function, `localOffset` is set to zero.
-As we create local variables, we get the size of each one,
-pass it to `newlocaloffset()` and get back the offset.
+각 함수가 시작될 때 `localOffset`은 0으로 설정된다. 지역 변수를 생성할 때마다 각 변수의 크기를 구하고, 이를 `newlocaloffset()`에 전달한 뒤 오프셋을 반환받는다.
 
-Both `fred` and `jim` local variables are `int`s, which are
-size 4. Therefore, their offsets should be `-4` and `-8`.
+`fred`와 `jim` 지역 변수는 모두 `int` 타입이므로 크기는 4바이트다. 따라서 이들의 오프셋은 각각 `-4`와 `-8`이 되어야 한다.
 
-## More Evidence, Please
 
-Let's abstract  `newlocaloffset()` into a separate source
-file, `z.c` (my "go to" temporary file name) and compile it.
-The source file is:
+## 더 많은 증거가 필요하다
+
+`newlocaloffset()` 함수를 별도의 소스 파일인 `z.c`(임시 파일 이름)로 추상화한 후 컴파일해 보자. 소스 파일은 다음과 같다:
 
 ```c
 static int localOffset=0;
@@ -109,7 +92,7 @@ static int newlocaloffset(int size) {
 }
 ```
 
-And here is the output assembly with my comments:
+그리고 여기 주석이 달린 어셈블리 출력 결과가 있다:
 
 ```
         .data
@@ -119,47 +102,43 @@ localOffset:
         .text
 newlocaloffset:
         pushq   %rbp                     
-        movq    %rsp, %rbp               # Set up the stack and
-        movl    %edi, -4(%rbp)           # frame pointers
+        movq    %rsp, %rbp               # 스택과 프레임 포인터 설정
+        movl    %edi, -4(%rbp)           # 
         addq    $-16,%rsp               
-        movslq  localOffset(%rip), %r10  # Get localOffset into %r10
-                                         # in preparation for the +=
-        movslq  -4(%rbp), %r11           # Get size into %r11
-        movq    $4, %r12                 # Get  4   into %r12
-        cmpl    %r12d, %r11d             # Compare them
-        jle     L2                       # Jump if size < 4
+        movslq  localOffset(%rip), %r10  # localOffset을 %r10에 로드
+                                         # += 연산을 준비
+        movslq  -4(%rbp), %r11           # size를 %r11에 로드
+        movq    $4, %r12                 # 4를 %r12에 로드
+        cmpl    %r12d, %r11d             # 비교
+        jle     L2                       # size < 4이면 L2로 점프
         movslq  -4(%rbp), %r11
-        movq    %r11, %r10               # Get size into %r10
-        jmp     L3                       # and jump to L3
+        movq    %r11, %r10               # size를 %r10에 로드
+        jmp     L3                       # L3로 점프
 L2:
-        movq    $4, %r11                 # Otherwise get 4
-        movq    %r11, %r10               # into %r10
+        movq    $4, %r11                 # 아니면 4를
+        movq    %r11, %r10               # %r10에 로드
 L3:
-        addq    %r10, %r10               # Add the += exression to the
-                                         # cached copy of localOffset
-        movl    %r10d, localOffset(%rip) # Save %r10 into localOffset
+        addq    %r10, %r10               # += 연산을 수행하며
+                                         # localOffset의 캐시된 복사본을 사용
+        movl    %r10d, localOffset(%rip) # %r10을 localOffset에 저장
         movslq  localOffset(%rip), %r10
-        negq    %r10                     # Negate localOffset
-        movl    %r10d, %eax              # Set up the return value
+        negq    %r10                     # localOffset을 부호 반전
+        movl    %r10d, %eax              # 반환 값 설정
         jmp     L1                      
 L1:
-        addq    $16,%rsp                 # Restore the stack and
-        popq    %rbp                     # frame pointers
-        ret                              # and return
+        addq    $16,%rsp                 # 스택과 프레임 포인터 복원
+        popq    %rbp                     # 
+        ret                              # 반환
 ```
 
-Hmm, the code is trying to do `localOffset += expression`,
-and we have a copy of `localOffset` cached in `%r10`.
-However, the expression itself also uses `%r10`, thus
-destroying the cached version of `localOffset`.
+흠, 이 코드는 `localOffset += expression`을 수행하려고 한다. 그리고 `localOffset`의 복사본을 `%r10`에 캐시해 두었다. 하지만 이 표현식 자체도 `%r10`을 사용하기 때문에, `localOffset`의 캐시된 버전이 파괴된다.
 
-The `addq %r10, %r10`, in particular, is just wrong:
-it should be adding two different registers.
+특히 `addq %r10, %r10`은 잘못된 명령이다. 이 명령은 두 개의 다른 레지스터를 더해야 한다.
 
-## Passing the Triple Test by Cheating
 
-We can pass the triple test by rewriting the source code
-to `newlocaloffset()`:
+## 트리플 테스트를 속여 통과하기
+
+`newlocaloffset()` 함수의 소스 코드를 다음과 같이 수정하면 트리플 테스트를 통과할 수 있다:
 
 ```c
 static int newlocaloffset(int size) {
@@ -171,7 +150,7 @@ static int newlocaloffset(int size) {
 }
 ```
 
-When we now do:
+이제 다음 명령을 실행하면:
 
 ```
 $ make triple
@@ -184,35 +163,30 @@ size cwj[01]
  109652    3028      48  112728   1b858 cwj1
 ```
 
-the last two compiler binaries are 100% identical. But this hides
-the fact that the original `newlocaloffset()` source code should
-work but it doesn't.
+마지막 두 컴파일러 바이너리가 100% 동일하다. 하지만 이는 원래 `newlocaloffset()` 소스 코드가 작동해야 하지만 실제로는 작동하지 않는다는 사실을 숨긴다.
 
-Why are we reallocating `%r10` when we know that it is allocated?
+이미 할당된 `%r10`을 왜 다시 할당하는지 의문이 든다. 이는 불필요한 작업이며, 원래 코드가 의도한 동작과 일치하지 않을 수 있다.
 
-## A Possible Culprit
 
-I added back in to `cg.c` the `printf()` lines to see when registers
-were being allocated and freed. I noticed that, after these assembly
-lines:
+## 문제의 원인
+
+`cg.c` 파일에 `printf()` 문을 추가해 레지스터가 할당되고 해제되는 시점을 확인했다. 다음 어셈블리 코드 라인 이후에 모든 레지스터가 해제되는 것을 발견했다:
 
 ```
-        movslq  -4(%rbp), %r11           # Get size into %r11
-        movq    $4, %r12                 # Get  4   into %r12
-        cmpl    %r12d, %r11d             # Compare them
-        jle     L2                       # Jump if size < 4
+        movslq  -4(%rbp), %r11           # 크기를 %r11에 로드
+        movq    $4, %r12                 # 4를 %r12에 로드
+        cmpl    %r12d, %r11d             # 두 값을 비교
+        jle     L2                       # 크기가 4보다 작으면 점프
 ```
 
-all the registers are freed, even though `%r10` holds the cached
-copy of `localOffset`. Which function is generating these lines
-and freeing the registers? The answer is:
+이때 `%r10`에는 `localOffset`의 캐시된 복사본이 저장되어 있음에도 불구하고 모든 레지스터가 해제되었다. 이러한 코드를 생성하고 레지스터를 해제하는 함수는 무엇일까? 정답은 다음과 같다:
 
 ```c
-// Compare two registers and jump if false.
+// 두 레지스터를 비교하고 조건이 거짓이면 점프한다.
 int cgcompare_and_jump(int ASTop, int r1, int r2, int label, int type) {
   int size = cgprimsize(type);
 
-  // Check the range of the AST operation
+  // AST 연산의 범위를 확인
   if (ASTop < A_EQ || ASTop > A_GE)
     fatal("Bad ASTop in cgcompare_and_set()");
 
@@ -232,88 +206,76 @@ int cgcompare_and_jump(int ASTop, int r1, int r2, int label, int type) {
 }
 ```
 
-Looking at the code, we can definitely free `r1` and `r2`, so let's
-try that instead of freeing all the registers.
+코드를 살펴보면 `r1`과 `r2`는 확실히 해제할 수 있다. 따라서 모든 레지스터를 해제하는 대신 이 두 레지스터만 해제해 보자.
 
-Yes, that helps, and all our regression tests still pass.
-However, another function is also freeing all the registers.
-It's time to use `gdb` and follow the execution.
+이렇게 수정하면 문제가 해결되고, 모든 회귀 테스트도 통과한다. 하지만 다른 함수에서도 모든 레지스터를 해제하고 있다. 이제 `gdb`를 사용해 실행 과정을 따라가며 문제를 해결할 차례다.
 
-## The Real Culprit
 
-It looks like the real culprit is that I forgot that many operations
-can be part of an expression, and I can't free all registers until
-the expression's result is either used or discarded.
+## 문제의 근본 원인
 
-As I looked at the execution with `gdb`, I saw that the code that
-deals with ternary operators is freeing registers, even though
-this may only be part of a bigger expression with registers already
-allocated (in `gen.c`):
+문제의 진짜 원인은 많은 연산이 표현식의 일부가 될 수 있다는 점을 잊었기 때문이다. 표현식의 결과가 사용되거나 버려질 때까지 모든 레지스터를 해제할 수 없다.
+
+`gdb`로 실행 과정을 살펴보니, 삼항 연산자를 처리하는 코드가 레지스터를 해제하고 있었다. 이는 이미 할당된 레지스터가 있는 더 큰 표현식의 일부일 수 있다(`gen.c` 파일 참조):
 
 ```c
 static int gen_ternary(struct ASTnode *n) {
   ...
-  // Generate the condition code
+  // 조건 코드 생성
   genAST(n->left, Lfalse, NOLABEL, NOLABEL, n->op);
-  genfreeregs(NOREG);           // HERE
+  genfreeregs(NOREG);           // 여기서 문제 발생
 
-  // Get a register to hold the result of the two expressions
+  // 두 표현식의 결과를 담을 레지스터 할당
   reg = alloc_register();
 
-  // Generate the true expression and the false label.
-  // Move the expression result into the known register.
-  // Don't free the register holding the result, though!
+  // 참인 경우의 표현식과 거짓 레이블 생성
+  // 표현식 결과를 알려진 레지스터로 이동
+  // 하지만 결과를 담은 레지스터는 해제하지 않음!
   expreg = genAST(n->mid, NOLABEL, NOLABEL, NOLABEL, n->op);
   cgmove(expreg, reg);
-  genfreeregs(reg);             // HERE
+  genfreeregs(reg);             // 여기서 문제 발생
 
-  // Generate the false expression and the end label.
-  // Move the expression result into the known register.
-  // Don't free the register holding the result, though!
+  // 거짓인 경우의 표현식과 종료 레이블 생성
+  // 표현식 결과를 알려진 레지스터로 이동
+  // 하지만 결과를 담은 레지스터는 해제하지 않음!
   expreg = genAST(n->right, NOLABEL, NOLABEL, NOLABEL, n->op);
   cgmove(expreg, reg);
-  genfreeregs(reg);             // HERE
+  genfreeregs(reg);             // 여기서 문제 발생
   ...
 }
 ```
 
-Looking through `cg.c`, all the functions in there free registers
-that are no longer used, so I think that we can lose the `genfreeregs()`
-straight after the generation of the condition code.
+`cg.c` 파일을 살펴보면, 더 이상 사용되지 않는 레지스터를 해제하는 함수들이 있다. 따라서 조건 코드 생성 직후의 `genfreeregs()` 호출을 제거해도 된다.
 
-Next up, once we move the true expression's value in the register
-reserved for the ternary result, we can free `expreg`. Ditto for the
-false expression's value.
+다음으로, 참인 경우의 표현식 값을 삼항 연산 결과를 담을 레지스터로 이동한 후에는 `expreg`를 해제할 수 있다. 거짓인 경우의 표현식 값도 마찬가지다.
 
-To make this happen, I've made a previously-static function in `cg.c`
-global and renamed it:
+이를 위해 `cg.c` 파일에 있던 이전의 정적 함수를 전역 함수로 변경하고 이름을 바꿨다:
 
 ```c
-// Return a register to the list of available registers.
-// Check to see if it's not already there.
+// 사용 가능한 레지스터 목록에 레지스터를 반환한다.
+// 이미 목록에 있는지 확인한다.
 void cgfreereg(int reg) { ... }
 ```
 
-We can now rewrite the ternary handling code in `gen.c`:
+이제 `gen.c` 파일의 삼항 연산 처리 코드를 다음과 같이 수정할 수 있다:
 
 ```c
 static int gen_ternary(struct ASTnode *n) {
   ...
-    // Generate the condition code followed
-  // by a jump to the false label.
+    // 조건 코드 생성 후
+  // 거짓 레이블로 점프
   genAST(n->left, Lfalse, NOLABEL, NOLABEL, n->op);
 
-  // Get a register to hold the result of the two expressions
+  // 두 표현식의 결과를 담을 레지스터 할당
   reg = alloc_register();
 
-  // Generate the true expression and the false label.
-  // Move the expression result into the known register.
+  // 참인 경우의 표현식과 거짓 레이블 생성
+  // 표현식 결과를 알려진 레지스터로 이동
   expreg = genAST(n->mid, NOLABEL, NOLABEL, NOLABEL, n->op);
   cgmove(expreg, reg);
   cgfreereg(expreg);
   ...
-  // Generate the false expression and the end label.
-  // Move the expression result into the known register.
+  // 거짓인 경우의 표현식과 종료 레이블 생성
+  // 표현식 결과를 알려진 레지스터로 이동
   expreg = genAST(n->right, NOLABEL, NOLABEL, NOLABEL, n->op);
   cgmove(expreg, reg);
   cgfreereg(expreg);
@@ -321,10 +283,10 @@ static int gen_ternary(struct ASTnode *n) {
 }
 ```
 
-With this change, the compiler now passes several tests:
+이 변경 사항을 적용한 후, 컴파일러는 여러 테스트를 통과한다:
 
-  + the triple test: `$ make triple`
-  + a quadruple test where we do one more compiler compilation:
+  + 삼중 테스트: `$ make triple`
+  + 컴파일러를 한 번 더 컴파일하는 사중 테스트:
 
 ```
 $ make quad
@@ -339,23 +301,18 @@ size cwj[012]
  109636    3028      48  112712   1b848 cwj2
 ```
 
-  + the regression tests with the Gnu C compiled compiler: `$ make test`
-  + the regression tests with our compiler compiled with itself: `$ make test0`
+  + Gnu C로 컴파일한 컴파일러로 회귀 테스트: `$ make test`
+  + 자체 컴파일러로 컴파일한 컴파일러로 회귀 테스트: `$ make test0`
   
-That feels very satisfying.
+이 결과는 매우 만족스럽다.
 
-## Conclusion and What's Next
 
-I've reached the original goal of this journey: to write a
-self-compiling compiler. It's taken 60 parts, 5,700 lines of
-code, 149 regression tests and 108,000 words in the *Readme* files.
+## 결론과 다음 단계
 
-That said, this doesn't have to be the end of the journey. There is
-still a lot of work that could be done to the compiler to make it
-more production ready. However, I've been working sporadically on this
-for about two months now, so I feel like I can (at least) have a small
-break.
+이 여정의 원래 목표인 자기 컴파일 컴파일러를 작성하는 데 성공했다. 60개의 파트, 5,700줄의 코드, 149개의 회귀 테스트, 그리고 *Readme* 파일에 108,000단어를 기록하며 이 작업을 마무리했다.
 
-In the next part of our compiler writing journey, I will outline what
-more can be done with our compiler. Perhaps I'll do some of these
-things; perhaps you will. [Next step](../61_What_Next/Readme.md)
+하지만 이 여정이 여기서 끝나야 하는 것은 아니다. 이 컴파일러를 더 생산 환경에 적합하게 만들기 위해 추가로 해야 할 작업이 많다. 그동안 약 두 달 동안 간헐적으로 작업해왔기 때문에, 이제는 잠시 휴식을 취해도 될 것 같다.
+
+다음 컴파일러 작성 여정에서는 이 컴파일러로 더 할 수 있는 일들을 정리할 예정이다. 내가 이 중 몇 가지를 진행할 수도 있고, 여러분이 도전해볼 수도 있다. [다음 단계](../61_What_Next/Readme.md)
+
+

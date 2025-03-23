@@ -1,21 +1,17 @@
-# Part 38: Dangling Else and More
+# 38장: Dangling Else 문제와 그 외
 
-I started this part of our compiler writing journey hoping to fix up the 
-[dangling else problem](https:en.wikipedia.org/wiki/Dangling_else). It turns out that
-what I actually had to do was restructure the way we parse a few things because I
-had the parsing wrong in the first place.
+컴파일러 개발 과정에서 이 부분을 시작하며, [Dangling Else 문제](https://en.wikipedia.org/wiki/Dangling_else)를 해결하려고 했다. 하지만 실제로는 몇 가지 파싱 방식을 재구성해야 했는데, 처음부터 파싱이 잘못되었기 때문이다.
 
-This probably happened because I was keen to add functionality, but in the process
-I didn't step back enough and consider what we had been building. 
+이런 상황이 발생한 이유는 기능을 추가하는 데 급급했기 때문이다. 하지만 그 과정에서 전체적인 구조를 충분히 고려하지 못했다.
 
-So, let's see what mistakes in the compiler need fixing.
+이제 컴파일러에서 어떤 실수가 있었는지 살펴보자.
 
-## Fixing Up the For Grammar
 
-We'll start with our FOR loop structure. Yes it works, but it isn't as general as
-it should be.
+## FOR 문법 수정하기
 
-Up to now, the BNF grammar for our FOR loop has been:
+먼저 FOR 루프 구조부터 살펴본다. 현재 동작은 하지만, 더 일반적인 형태로 개선할 필요가 있다.
+
+지금까지 FOR 루프의 BNF 문법은 다음과 같았다:
 
 ```
 for_statement: 'for' '(' preop_statement ';'
@@ -23,9 +19,7 @@ for_statement: 'for' '(' preop_statement ';'
                          postop_statement ')' compound_statement  ;
 ```
 
-However, the 
-[BNF Grammar for C](https://www.lysator.liu.se/c/ANSI-C-grammar-y.html)
-has this:
+하지만 [C 언어의 BNF 문법](https://www.lysator.liu.se/c/ANSI-C-grammar-y.html)을 보면 이렇게 정의되어 있다:
 
 ```
 for_statement:
@@ -39,15 +33,11 @@ expression_statement
         ;
 ```
 
-and an `expression` is actually an expression list where expressions are separated
-by commas.
+여기서 `expression`은 실제로 쉼표로 구분된 표현식 목록(expression list)을 의미한다.
 
-This means that all three clauses of a FOR loop can actually be expression lists.
-If we were writing a "full" C compiler, this would end up being tricky.
-However, we are only writing a compiler for a *subset* of C, and therefore I don't have to 
-make our compiler deal with the full grammar for C.
+이것은 FOR 루프의 세 가지 절이 모두 표현식 목록이 될 수 있음을 나타낸다. 만약 완전한 C 컴파일러를 작성한다면 이 부분이 까다로울 수 있다. 하지만 우리는 C 언어의 *부분집합*을 위한 컴파일러를 작성하고 있으므로, C의 전체 문법을 처리할 필요는 없다.
 
-So, I have changed the parser for the FOR loop to recognise this:
+따라서 FOR 루프 파서를 다음과 같이 수정했다:
 
 ```
 for_statement: 'for' '(' expression_list ';'
@@ -55,83 +45,76 @@ for_statement: 'for' '(' expression_list ';'
                          expression_list ')' compound_statement  ;
 ```
 
-The middle clause is a single expression that must provide a true or false result.
-The first and last clauses can be expression lists. This allows a FOR loop like
-the one now in `tests/input80.c`:
+중간 절은 참 또는 거짓을 반환하는 단일 표현식이어야 한다. 첫 번째와 마지막 절은 표현식 목록이 될 수 있다. 이렇게 하면 `tests/input80.c`에 있는 다음과 같은 FOR 루프를 처리할 수 있다:
 
 ```c
     for (x=0, y=1; x < 6; x++, y=y+2)
 ```
 
-## Changes to `expression_list()`
 
-To do the above, I need to modify the `for_statement()` parsing function to
-call `expression_list()` to parse the list of expressions in the first and third
-clause.
+## `expression_list()` 변경 사항
 
-But, in the existing compiler, `expression_list()` only allows the ')' token to
-end an expression list. Therefore, I've modified `expression_list()`
-in `expr.c` to get the end token as an argument. And in `for_statement()`
-in `stmt.c`, we now have this code:
+위 작업을 수행하려면 `for_statement()` 파싱 함수를 수정하여 첫 번째와 세 번째 절에 있는 표현식 목록을 파싱하기 위해 `expression_list()`를 호출해야 한다.
+
+하지만 기존 컴파일러에서 `expression_list()`는 표현식 목록을 종료하는 토큰으로 ')'만 허용한다. 따라서 `expr.c` 파일의 `expression_list()`를 수정하여 종료 토큰을 인자로 받도록 변경했다. 그리고 `stmt.c` 파일의 `for_statement()`에는 다음과 같은 코드를 추가했다:
 
 ```c
-// Parse a FOR statement and return its AST
+// FOR 문을 파싱하고 AST를 반환
 static struct ASTnode *for_statement(void) {
   ...
-  // Get the pre_op expression and the ';'
+  // pre_op 표현식과 ';'를 파싱
   preopAST = expression_list(T_SEMI);
   semi();
   ...
-  // Get the condition and the ';'.
+  // 조건식과 ';'를 파싱
   condAST = binexpr(0);
   semi();
   ...
-  // Get the post_op expression and the ')'
+  // post_op 표현식과 ')'를 파싱
   postopAST = expression_list(T_RPAREN);
   rparen();
 }
 ```
 
-And the code in `expression_list()` now looks like this:
+이제 `expression_list()`의 코드는 다음과 같이 변경되었다:
 
 ```c
 struct ASTnode *expression_list(int endtoken) {
   ...
-  // Loop until the end token
+  // 종료 토큰이 나올 때까지 반복
   while (Token.token != endtoken) {
 
-    // Parse the next expression
+    // 다음 표현식을 파싱
     child = binexpr(0);
 
-    // Build an A_GLUE AST node ...
+    // A_GLUE AST 노드 생성 ...
     tree = mkastnode(A_GLUE, P_NONE, tree, NULL, child, NULL, exprcount);
 
-    // Stop when we reach the end token
+    // 종료 토큰에 도달하면 중단
     if (Token.token == endtoken) break;
 
-    // Must have a ',' at this point
+    // 이 시점에서 ','가 있어야 함
     match(T_COMMA, ",");
   }
 
-  // Return the tree of expressions
+  // 표현식 트리 반환
   return (tree);
 }
 ```
 
-## Single and Compound Statements
 
-Up to now, I've forced the programmer using our compiler to always put code in
-'{' ... '}' for:
+## 단일 문장과 복합 문장
 
- + the true body of an IF statement
- + the false body of an IF statement
- + the body of a WHILE statement
- + the body of a FOR statement
- + the body after a 'case' clause
- + the body after a 'default' clause
+지금까지 우리 컴파일러를 사용하는 프로그래머에게 다음과 같은 경우에 항상 '{' ... '}'를 사용하도록 강제했다:
 
-For the first four statements in this list, we don't need curly brackets when
-there is only a single statement, e.g.
+ + IF 문의 참 부분
+ + IF 문의 거짓 부분
+ + WHILE 문의 본문
+ + FOR 문의 본문
+ + 'case' 절 뒤의 본문
+ + 'default' 절 뒤의 본문
+
+이 목록에서 처음 네 가지 문장의 경우, 단일 문장일 때는 중괄호가 필요하지 않다. 예를 들어:
 
 ```c
   if (x>5)
@@ -140,8 +123,7 @@ there is only a single statement, e.g.
     x++;
 ```
 
-But when there are multiple statements in the body, we *do* need a compound statement
-which is a set of single statements surrounded by curly brackets, e.g.
+하지만 본문에 여러 문장이 있는 경우, 중괄호로 둘러싸인 복합 문장이 필요하다. 예를 들어:
 
 ```c
   if (x>5)
@@ -150,9 +132,7 @@ which is a set of single statements surrounded by curly brackets, e.g.
     x++;
 ```
 
-But, for some unknown reason, the code after a 'case' or 'default' clause in a
-'switch' statement can be a set of single statements and we don't need curly brackets!!
-Who was the crazy person who thought that was OK? An example:
+그런데 알 수 없는 이유로 'switch' 문의 'case' 또는 'default' 절 뒤의 코드는 단일 문장의 집합일 수 있으며, 중괄호가 필요하지 않다!! 누가 이런 것을 괜찮다고 생각했을까? 예를 들어:
 
 ```c
   switch (x) {
@@ -163,7 +143,7 @@ Who was the crazy person who thought that was OK? An example:
   }
 ```
 
-Even worse, this is also legal:
+더 나쁜 것은, 이것도 합법적이다:
 
 ```c
   switch (x) {
@@ -176,63 +156,54 @@ Even worse, this is also legal:
   }
 ```
 
-Therefore, we need to be able to parse:
+따라서 우리는 다음을 파싱할 수 있어야 한다:
 
- + single statements
- + a set of statements which are surrounded by curly brackets
- + a set of statements which don't start with a '{', but end with one of 'case',
-   'default', or '}' if they started with '{'
+ + 단일 문장
+ + 중괄호로 둘러싸인 문장 집합
+ + '{'로 시작하지 않지만 'case', 'default', 또는 '{'로 시작한 경우 '}'로 끝나는 문장 집합
 
-To this end, I've modified the `compound_statement()` in `stmt.c` to take an argument:
+이를 위해 `stmt.c`의 `compound_statement()`를 수정하여 인자를 받도록 했다:
 
 ```c
-// Parse a compound statement
-// and return its AST. If inswitch is true,
-// we look for a '}', 'case' or 'default' token
-// to end the parsing. Otherwise, look for
-// just a '}' to end the parsing.
+// 복합 문장을 파싱하고 AST를 반환한다. 
+// inswitch가 참이면, 파싱을 종료하기 위해 '}', 'case', 또는 'default' 토큰을 찾는다.
+// 그렇지 않으면, 파싱을 종료하기 위해 '}'만 찾는다.
 struct ASTnode *compound_statement(int inswitch) {
   struct ASTnode *left = NULL;
   struct ASTnode *tree;
 
   while (1) {
-    // Parse a single statement
+    // 단일 문장을 파싱한다
     tree = single_statement();
     ...
-    // Leave if we've hit the end token
+    // 종료 토큰을 만나면 빠져나간다
     if (Token.token == T_RBRACE) return(left);
     if (inswitch && (Token.token == T_CASE || Token.token == T_DEFAULT)) return(left);
   }
 }
 ```
 
-If this function get's called with `inswitch` set to 1, then we have been
-called during the parsing of a 'switch' statement, so look for 'case', 'default' or '}'
-to end the compound statement. Otherwise, we are in a more typical '{' ... '}'
-situation.
+이 함수가 `inswitch`가 1로 설정된 상태로 호출되면, 'switch' 문을 파싱하는 중이므로 'case', 'default', 또는 '}'를 찾아 복합 문장을 종료한다. 그렇지 않으면, 일반적인 '{' ... '}' 상황에서 파싱을 진행한다.
 
-Now, we also need to allow:
+이제 다음도 허용해야 한다:
 
- + a single statement inside the body of an IF statement
- + a single statement inside the body of an WHILE statement
- + a single statement inside the body of a FOR statement
+ + IF 문 본문 내의 단일 문장
+ + WHILE 문 본문 내의 단일 문장
+ + FOR 문 본문 내의 단일 문장
 
-All of these are, at present, calling `compound_statement(0)`, but this
-enforces the parsing of a closing '}', and we won't have one of these for a single statement.
+현재 이 모든 경우에 `compound_statement(0)`을 호출하고 있지만, 이는 닫는 '}'를 파싱하도록 강제한다. 단일 문장의 경우에는 이런 '}'가 없을 수 있다.
 
-The answer is to get the IF, WHILE and FOR parsing code to call
-`single_statement()` to parse one statement. And, get `single_statement()`
-to call `compound_statement()` if it see an opening curly bracket.
+해결책은 IF, WHILE, FOR 파싱 코드가 단일 문장을 파싱하기 위해 `single_statement()`를 호출하도록 하는 것이다. 그리고 `single_statement()`가 여는 중괄호를 만나면 `compound_statement()`를 호출하도록 한다.
 
-Thus, I've also made these changes in `stmt.c`:
+따라서 `stmt.c`에 다음과 같은 변경을 했다:
 
 ```c
-// Parse a single statement and return its AST.
+// 단일 문장을 파싱하고 AST를 반환한다.
 static struct ASTnode *single_statement(void) {
   ...
   switch (Token.token) {
     case T_LBRACE:
-      // We have a '{', so this is a compound statement
+      // '{'를 만나면 복합 문장이다
       lbrace();
       stmt = compound_statement(0);
       rbrace();
@@ -241,11 +212,10 @@ static struct ASTnode *single_statement(void) {
 ...
 static struct ASTnode *if_statement(void) {
   ...
-  // Get the AST for the statement
+  // 문장의 AST를 얻는다
   trueAST = single_statement();
   ...
-  // If we have an 'else', skip it
-  // and get the AST for the statement
+  // 'else'가 있으면 건너뛰고 문장의 AST를 얻는다
   if (Token.token == T_ELSE) {
     scan(&Token);
     falseAST = single_statement();
@@ -255,8 +225,8 @@ static struct ASTnode *if_statement(void) {
 ...
 static struct ASTnode *while_statement(void) {
   ...
-    // Get the AST for the statement.
-  // Update the loop depth in the process
+    // 문장의 AST를 얻는다.
+  // 이 과정에서 루프 깊이를 업데이트한다
   Looplevel++;
   bodyAST = single_statement();
   Looplevel--;
@@ -265,8 +235,8 @@ static struct ASTnode *while_statement(void) {
 ...
 static struct ASTnode *for_statement(void) {
   ...
-  // Get the statement which is the body
-  // Update the loop depth in the process
+  // 본문 문장을 얻는다
+  // 이 과정에서 루프 깊이를 업데이트한다
   Looplevel++;
   bodyAST = single_statement();
   Looplevel--;
@@ -274,7 +244,7 @@ static struct ASTnode *for_statement(void) {
 }
 ```
 
-This now means the compiler will accept code which looks like this:
+이제 컴파일러는 다음과 같은 코드를 받아들일 수 있다:
 
 ```c
   if (x>5)
@@ -283,17 +253,16 @@ This now means the compiler will accept code which looks like this:
     x++;
 ```
 
-## Yes, But "Dangling Else?"
 
-I still haven't solved the "dangling else" problem, which after all is why
-I started this part of the journey. Well, it turns out that this problem was
-solved due to the way that we already parse our input.
+## "Dangling Else" 문제 해결
 
-Consider this program:
+아직까지 "dangling else" 문제를 해결하지 못했다. 이 문제는 이번 여정을 시작한 이유 중 하나였다. 하지만 우리가 입력을 파싱하는 방식 덕분에 이 문제가 이미 해결되었다는 사실을 알게 되었다.
+
+다음 프로그램을 살펴보자:
 
 ```c
-  // Dangling else test.
-  // We should not print anything for x<= 5
+  // Dangling else 테스트
+  // x <= 5일 때는 아무것도 출력하지 않아야 함
   for (x=0; x < 12; x++)
     if (x > 5)
       if (x > 10)
@@ -302,44 +271,37 @@ Consider this program:
         printf(" 5 < %2d <= 10\n", x);
 ```
 
-We want the 'else' code to pair up with the nearest 'if' statement. Therefore,
-the last `printf` statement above should only print when `x` is between 5 and 10.
-The 'else' code should *not* be invoked due to the opposite of `x > 5`.
+여기서 'else' 코드는 가장 가까운 'if' 문과 짝을 이루어야 한다. 따라서 위의 마지막 `printf` 문은 `x`가 5와 10 사이일 때만 출력되어야 한다. 'else' 코드는 `x > 5`의 반대 조건 때문에 실행되어서는 안 된다.
 
-Luckily, in our `if_statement()` parser, we greedily scan for any 'else' token
-after the body of the IF statement:
+다행히도, `if_statement()` 파서에서 IF 문의 본문 이후에 'else' 토큰을 탐욕적으로 스캔하도록 구현했다:
 
 ```c
-  // Get the AST for the statement
+  // 문장에 대한 AST를 가져옴
   trueAST = single_statement();
 
-  // If we have an 'else', skip it
-  // and get the AST for the statement
+  // 'else'가 있다면 건너뛰고
+  // 문장에 대한 AST를 가져옴
   if (Token.token == T_ELSE) {
     scan(&Token);
     falseAST = single_statement();
   }
 ```
 
-This forces the 'else' to pair up with the nearest 'if' and solves the dangling else
-problem. So, all this time, I was forcing the use of '{' ... '}' when I'd already
-solved the problem I was worrying about! Sigh.
+이렇게 하면 'else'가 가장 가까운 'if'와 짝을 이루게 되고, dangling else 문제가 해결된다. 그래서 내가 '{' ... '}'를 강제로 사용하도록 했던 것은 이미 해결된 문제에 대한 걱정이었던 셈이다. 한숨만 나온다.
 
-## Some Better Debug Output
 
-Finally, I've made a change to our scanner to improve debugging. Or, more exactly,
-to improve the debug messages that we print out. Up to now, we have been printing
-the token numeric value in our error messages, e.g.
+## 디버그 출력 개선
+
+마지막으로, 디버깅을 개선하기 위해 스캐너를 수정했다. 더 정확히 말하면, 출력되는 디버그 메시지를 개선했다. 지금까지는 오류 메시지에서 토큰의 숫자 값을 출력했었다. 예를 들어:
 
  + Unexpected token in parameter list: 23
  + Expecting a primary expression, got token: 19
  + Syntax error, token: 44
 
-For the programmer who receives these error messages, they are essentially unusable.
-In `scan.c`, I've added this list of token strings:
+이런 오류 메시지를 받는 프로그래머에게는 사실상 쓸모가 없었다. `scan.c` 파일에 토큰 문자열 목록을 추가했다:
 
 ```c
-// List of token strings, for debugging purposes
+// 디버깅을 위한 토큰 문자열 목록
 char *Tstring[] = {
   "EOF", "=", "||", "&&", "|", "^", "&",
   "==", "!=", ",", ">", "<=", ">=", "<<", ">>",
@@ -355,50 +317,40 @@ char *Tstring[] = {
 };
 ```
 
-In `defs.h`, I've added another field to the Token structure:
+`defs.h` 파일에서는 Token 구조체에 새로운 필드를 추가했다:
 
 ```c
-// Token structure
+// Token 구조체
 struct token {
-  int token;                    // Token type, from the enum list above
-  char *tokstr;                 // String version of the token
-  int intvalue;                 // For T_INTLIT, the integer value
+  int token;                    // 토큰 타입, 위의 enum 목록에서 가져옴
+  char *tokstr;                 // 토큰의 문자열 버전
+  int intvalue;                 // T_INTLIT의 경우, 정수 값
 };
 ```
 
-In `scan()` in `scan.c`, just before we return a token, we set up its
-string equivalent:
+`scan.c` 파일의 `scan()` 함수에서, 토큰을 반환하기 직전에 해당 토큰의 문자열 버전을 설정한다:
 
 ```c
   t->tokstr = Tstring[t->token];
 ```
 
-And, finally, I've modified a bunch of `fatalXX()` calls to print out the
-`tokstr` field of the current token instead of the `intvalue` field. This
-means we now see:
+마지막으로, 여러 `fatalXX()` 호출을 수정해 현재 토큰의 `intvalue` 필드 대신 `tokstr` 필드를 출력하도록 했다. 이제 다음과 같은 메시지를 볼 수 있다:
 
  + Unexpected token in parameter list: ==
  + Expecting a primary expression, got token: ]
  + Syntax error, token: >>
 
-which is much better.
+이전보다 훨씬 더 나은 디버그 메시지다.
 
 
-## Conclusion and What's Next
+## 결론 및 다음 단계
 
-I set out to solve the "dangling else" misfeature in our compiler and ended up
-fixing a bunch of other misfeatures. In the process, I found out that there was
-no "dangling else" problem to solve.
+컴파일러의 "매달린 else" 문제를 해결하려고 시작했지만, 결국 여러 다른 문제들도 함께 수정하게 되었다. 과정에서 "매달린 else" 문제는 실제로 존재하지 않는다는 사실을 알게 되었다.
 
-We have reached a stage in the development of the compiler where all the essential
-elements we need to self-compile the compiler are implemented, but now we need to
-find and fix a bunch of small issues. This is the "mop up" phase.
+이제 우리 컴파일러는 스스로 컴파일할 수 있는 모든 핵심 요소를 구현한 단계에 도달했다. 하지만 여전히 많은 작은 문제들을 찾아내고 수정해야 하는 "마무리" 단계에 있다.
 
-What this means is, from now on, there will be less and less on how to write
-a compiler, and more and more on how to fix a broken compiler. I won't be
-disappointed if you choose to bail out on the future parts of our journey.
-If you do, I hope that you found all the parts of the journey so far useful.
+앞으로는 컴파일러를 작성하는 방법보다는 고장 난 컴파일러를 고치는 방법에 대해 더 많이 다룰 것이다. 여러분이 앞으로의 여정을 포기하더라도 실망하지 않을 것이다. 지금까지의 여정이 유용했기를 바란다.
 
-In the next part of our compiler writing journey, I will pick something that
-currently doesn't work but we need to work to self-compile our compiler, and
-fix it. [Next step](../39_Var_Initialisation_pt1/Readme.md)
+다음 단계에서는 현재 작동하지 않지만, 컴파일러를 스스로 컴파일하기 위해 반드시 해결해야 할 문제를 선택해 고쳐 나갈 것이다. [다음 단계](../39_Var_Initialisation_pt1/Readme.md)
+
+

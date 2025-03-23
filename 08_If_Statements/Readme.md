@@ -1,95 +1,87 @@
-# Part 8: If Statements
+# 8부: 조건문(If Statements) 다루기
 
-Now that we can compare values, it's time to add IF statements to our language. So,
-firstly, let's look at the general syntax of IF statements and how they get converted
-into assembly language.
+값을 비교할 수 있게 되었으니, 이제 우리의 언어에 조건문(IF statements)을 추가할 차례다. 먼저, 조건문의 일반적인 문법과 이를 어셈블리 언어로 어떻게 변환하는지 살펴보자.
 
-## The IF Syntax
 
-The IF statement syntax is:
+## IF 구문
+
+IF 문의 구문은 다음과 같다:
 
 ```
-  if (condition is true) 
-    perform this first block of code
+  if (조건이 참이면)
+    첫 번째 코드 블록을 실행
   else
-    perform this other block of code
+    다른 코드 블록을 실행
 ```
 
-Now, how is this normally converted into assembly language? It turns out that we
-do the opposite comparison and jump/branch if the opposite comparison is true:
+이를 일반적으로 어셈블리 언어로 변환하면 어떻게 될까? 실제로는 반대 비교를 수행하고, 반대 비교가 참일 때 점프 또는 분기한다:
 
 ```
-       perform the opposite comparison
-       jump to L1 if true
-       perform the first block of code
-       jump to L2
+       반대 비교를 수행
+       참이면 L1로 점프
+       첫 번째 코드 블록을 실행
+       L2로 점프
 L1:
-       perform the other block of code
+       다른 코드 블록을 실행
 L2:
    
 ```
 
-where `L1` and `L2` are assembly language labels.
+여기서 `L1`과 `L2`는 어셈블리 언어의 레이블이다.
 
-## Generating The Assembly in Our Compiler
 
-Right now, we output code to set a register based on a comparison, e.g.
+## 컴파일러에서 어셈블리 코드 생성하기
+
+현재 우리는 비교 연산을 기반으로 레지스터를 설정하는 코드를 출력한다. 예를 들어:
 
 ```
-   int x; x= 7 < 9;         From input04
+   int x; x= 7 < 9;         // input04에서
 ```
 
-becomes
+이 코드는 다음과 같이 변환된다:
 
 ```
         movq    $7, %r8
         movq    $9, %r9
         cmpq    %r9, %r8
-        setl    %r9b        Set if less than 
+        setl    %r9b        // 작을 경우 설정
         andq    $255,%r9
 ```
 
-But for an IF statement, we need to jump on the opposite comparison:
+하지만 IF 문의 경우, 반대 비교에서 점프해야 한다:
 
 ```
    if (7 < 9) 
 ```
 
-should become:
+이 코드는 다음과 같이 변환되어야 한다:
 
 ```
         movq    $7, %r8
         movq    $9, %r9
         cmpq    %r9, %r8
-        jge     L1         Jump if greater then or equal to
+        jge     L1         // 크거나 같을 경우 점프
         ....
 L1:
 ```
 
-So, I've implemented IF statements in this part of our journey. As this is a working
-project, I did have to undo a few things and refactor them as part of the journey.
-I'll try to cover the changes as well as the additions along the way.
+이 부분에서 IF 문을 구현했다. 이 프로젝트는 진행 중인 작업이기 때문에, 과정 중에 몇 가지를 되돌리고 리팩토링해야 했다. 이 과정에서의 변경 사항과 추가된 부분을 최대한 설명하려고 한다.
 
-## New Tokens and the Dangling Else
 
-We are going to need a bunch of new tokens in our language. I also (for now) want to
-avoid the [dangling else problem](https://en.wikipedia.org/wiki/Dangling_else). To that
-end, I've changed the grammar so that all groups of statements are wrapped around
-'{'  ... '}' curly brackets; I called such a grouping a "compound statement".
-We also need '(' ... ')' parentheses to hold the IF expression, plus keywords 'if' and
-'else'. Thus, the new tokens are (in `defs.h`):
+## 새로운 토큰과 Dangling Else 문제
+
+우리 언어에는 여러 새로운 토큰이 필요하다. 또한 (현재로서는) [dangling else 문제](https://en.wikipedia.org/wiki/Dangling_else)를 피하고 싶다. 이를 위해 모든 문장 그룹을 '{' ... '}' 중괄호로 감싸도록 문법을 변경했다. 나는 이러한 그룹을 "복합문(compound statement)"이라고 부른다. 또한 IF 표현식을 감싸기 위해 '(' ... ')' 괄호와 'if', 'else' 키워드가 필요하다. 따라서 새로운 토큰은 (`defs.h` 파일에서) 다음과 같다:
 
 ```c
   T_LBRACE, T_RBRACE, T_LPAREN, T_RPAREN,
-  // Keywords
+  // 키워드
   ..., T_IF, T_ELSE
 ```
 
-## Scanning the Tokens
 
-The single-character tokens should be obvious and I won't give the code to scan them.
-The keywords should also be pretty obvious, but I'll give the scanning code from
-`keyword()` in `scan.c`:
+## 토큰 스캐닝
+
+단일 문자 토큰은 명확하므로 코드를 따로 제공하지 않는다. 키워드도 비교적 간단하지만, `scan.c` 파일의 `keyword()` 함수에서 스캐닝 코드를 살펴보자:
 
 ```c
   switch (*s) {
@@ -110,12 +102,13 @@ The keywords should also be pretty obvious, but I'll give the scanning code from
   }
 ```
 
-## The New BNF Grammar
 
-Our grammar is starting to get big, so I've rewritten it somewhat:
+## 새로운 BNF 문법
+
+우리의 문법이 점점 커지고 있어서, 이를 다시 작성했다:
 
 ```
- compound_statement: '{' '}'          // empty, i.e. no statement
+ compound_statement: '{' '}'          // 빈 문장, 즉 아무런 문장이 없음
       |      '{' statement '}'
       |      '{' statement statements '}'
       ;
@@ -141,19 +134,13 @@ Our grammar is starting to get big, so I've rewritten it somewhat:
  identifier: T_IDENT ;
 ```
 
-I've left out the definition of `true_false_expression`, but at some point when
-we've added a few more operators I'll add it in.
+`true_false_expression`의 정의는 생략했지만, 나중에 몇 가지 연산자를 추가하면 이를 포함할 예정이다.
 
-Note the grammar for the IF statement: it's either an `if_head` (with no 'else' clause),
-or an `if_head` followed by a 'else' and a `compound_statement`.
+IF 문의 문법을 주목해보자: `if_head` (else 절 없음)이거나, `if_head` 뒤에 'else'와 `compound_statement`가 오는 형태이다.
 
-I've separated out all the different statement types to have their own non-terminal
-name. Also, the previous `statements` non-terminal is now the `compound_statement`
-non-terminal, and this requires '{' ... '}' around the statements.
+모든 다른 문장 타입을 각각의 비터미널 이름으로 분리했다. 또한 이전의 `statements` 비터미널이 이제 `compound_statement` 비터미널로 변경되었고, 이는 '{' ... '}'로 문장들을 감싸야 한다는 것을 의미한다.
 
-This means that the `compound_statement` in the head is surrounded by '{' ... '}'
-and so is any `compound_statement` after the 'else' keyword. So if we have nested IF
-statements, they have to look like:
+이것은 `if_head`의 `compound_statement`가 '{' ... '}'로 둘러싸여 있고, 'else' 키워드 뒤의 `compound_statement`도 마찬가지라는 것을 의미한다. 따라서 중첩된 IF 문이 있다면, 다음과 같이 보일 것이다:
 
 ```
   if (condition1 is true) {
@@ -167,21 +154,21 @@ statements, they have to look like:
   }
 ```
 
-and there is no ambiguity about which 'if' each 'else' belongs to. This solves the
-dangling else problem. Later on, I'll make the '{' ... '}' optional.
+그리고 각 'else'가 어느 'if'에 속하는지에 대한 모호함이 없다. 이는 '매달린 else 문제'를 해결한다. 나중에 '{' ... '}'를 선택적으로 만들 예정이다.
 
-## Parsing Compound Statements
 
-The old `void statements()` function is now `compound_statement()` and looks like this:
+## 복합문 파싱
+
+이전의 `void statements()` 함수는 이제 `compound_statement()`로 변경되었으며, 다음과 같은 형태를 가진다:
 
 ```c
-// Parse a compound statement
-// and return its AST
+// 복합문을 파싱하고
+// 해당 AST를 반환한다
 struct ASTnode *compound_statement(void) {
   struct ASTnode *left = NULL;
   struct ASTnode *tree;
 
-  // Require a left curly bracket
+  // 왼쪽 중괄호를 요구한다
   lbrace();
 
   while (1) {
@@ -191,7 +178,7 @@ struct ASTnode *compound_statement(void) {
         break;
       case T_INT:
         var_declaration();
-        tree = NULL;            // No AST generated here
+        tree = NULL;            // 여기서는 AST가 생성되지 않는다
         break;
       case T_IDENT:
         tree = assignment_statement();
@@ -200,17 +187,17 @@ struct ASTnode *compound_statement(void) {
         tree = if_statement();
         break;
     case T_RBRACE:
-        // When we hit a right curly bracket,
-        // skip past it and return the AST
+        // 오른쪽 중괄호를 만나면
+        // 이를 건너뛰고 AST를 반환한다
         rbrace();
         return (left);
       default:
         fatald("Syntax error, token", Token.token);
     }
 
-    // For each new tree, either save it in left
-    // if left is empty, or glue the left and the
-    // new tree together
+    // 각각의 새로운 트리에 대해,
+    // left가 비어 있으면 left에 저장하고,
+    // 그렇지 않으면 left와 새로운 트리를 결합한다
     if (tree) {
       if (left == NULL)
         left = tree;
@@ -220,111 +207,97 @@ struct ASTnode *compound_statement(void) {
   }
 ```
 
-Firstly, note that the code forces the parser to match the '{' at the start of the
-compound statement with `lbrace()`, and we can only exit when we've matched the ending
-'}' with `rbrace()`.
+먼저, 코드가 파서에게 복합문의 시작 부분에 있는 '{'를 `lbrace()`로 매칭하도록 강제하고, 끝 부분의 '}'를 `rbrace()`로 매칭했을 때만 빠져나올 수 있게 한다는 점을 주목한다.
 
-Secondly, note that `print_statement()`, `assignment_statement()` and
-`if_statement()` all return an AST tree, as does `compound_statement()`.
-In our old code, `print_statement()` itself called `genAST()` to evaluate the
-expression, followed by a call to `genprintint()`. Similarly, 
-`assignment_statement()`  also called `genAST()` to do the assignment.
+둘째, `print_statement()`, `assignment_statement()`, `if_statement()` 모두 AST 트리를 반환하며, `compound_statement()`도 마찬가지이다. 이전 코드에서는 `print_statement()`가 표현식을 평가하기 위해 `genAST()`를 호출한 후 `genprintint()`를 호출했다. 마찬가지로 `assignment_statement()`도 할당을 수행하기 위해 `genAST()`를 호출했다.
 
-Well, this means that we have AST trees over here, and others over there. It makes some
-sense to generate just a single AST tree, and call `genAST()` once to generate the
-assembly code for it.
+이는 여기서는 AST 트리가 있고, 다른 곳에서는 또 다른 AST 트리가 있다는 것을 의미한다. 단일 AST 트리를 생성하고, 이를 위해 `genAST()`를 한 번만 호출해 어셈블리 코드를 생성하는 것이 더 합리적이다.
 
-This isn't mandatory. For example, SubC only generates ASTs for expressions. For
-the structural parts of the language, like statements, SubC makes specific calls
-to the code generator as I was doing in the previous versions of the compiler.
+이것이 반드시 필수는 아니다. 예를 들어, SubC는 표현식에 대해서만 AST를 생성한다. 문장과 같은 언어의 구조적 부분에 대해서는 SubC는 이전 버전의 컴파일러에서 했던 것처럼 코드 생성기에 특정 호출을 한다.
 
-I've decided to, for now, generate a single AST tree for the whole input with the
-parser. Once the input has been parsed, the assembly output can be generated from
-the one AST tree.
+나는 현재로서는 파서가 전체 입력에 대해 단일 AST 트리를 생성하기로 결정했다. 입력이 파싱되면, 하나의 AST 트리에서 어셈블리 출력을 생성할 수 있다.
 
-Later on, I'll probably generate an AST tree for each function. Later.
+나중에는 아마 각 함수마다 AST 트리를 생성할 것이다. 나중에.
 
-## Parsing the IF Grammar
 
-Because we are a recursive descent parser, parsing the IF statement is not too bad:
+## IF 문법 파싱
+
+재귀 하강 파서를 사용하기 때문에 IF 문을 파싱하는 것은 크게 어렵지 않다:
 
 ```c
-// Parse an IF statement including
-// any optional ELSE clause
-// and return its AST
+// IF 문을 파싱하고
+// 선택적인 ELSE 절을 포함하여
+// AST를 반환한다
 struct ASTnode *if_statement(void) {
   struct ASTnode *condAST, *trueAST, *falseAST = NULL;
 
-  // Ensure we have 'if' '('
+  // 'if' '('가 있는지 확인
   match(T_IF, "if");
   lparen();
 
-  // Parse the following expression
-  // and the ')' following. Ensure
-  // the tree's operation is a comparison.
+  // 다음 표현식을 파싱하고
+  // 뒤따르는 ')'를 확인한다.
+  // 트리의 연산이 비교 연산자인지 확인한다.
   condAST = binexpr(0);
 
   if (condAST->op < A_EQ || condAST->op > A_GE)
-    fatal("Bad comparison operator");
+    fatal("잘못된 비교 연산자");
   rparen();
 
-  // Get the AST for the compound statement
+  // 복합문에 대한 AST를 얻는다
   trueAST = compound_statement();
 
-  // If we have an 'else', skip it
-  // and get the AST for the compound statement
+  // 'else'가 있다면 건너뛰고
+  // 복합문에 대한 AST를 얻는다
   if (Token.token == T_ELSE) {
     scan(&Token);
     falseAST = compound_statement();
   }
-  // Build and return the AST for this statement
+  // 이 문장에 대한 AST를 만들고 반환한다
   return (mkastnode(A_IF, condAST, trueAST, falseAST, 0));
 }
 ```
 
-Right now, I don't want to deal with input like `if (x-2)`, so I've limited
-the binary expression from `binexpr()` to have a root which is one of the
-six comparison operators A_EQ, A_NE, A_LT, A_GT, A_LE or A_GE.
+현재는 `if (x-2)`와 같은 입력을 처리하고 싶지 않기 때문에, `binexpr()`에서 반환하는 바이너리 표현식의 루트가 A_EQ, A_NE, A_LT, A_GT, A_LE, A_GE 중 하나의 비교 연산자여야 한다는 제한을 두었다.
 
-## The Third Child
 
-I nearly smuggled something past you without properly explaining it. In
-the last line of `if_statement()` I build an AST node with:
+## 세 번째 자식 노드
+
+지난 `if_statement()` 함수의 마지막 줄에서 다음과 같이 AST 노드를 생성했다:
 
 ```c
    mkastnode(A_IF, condAST, trueAST, falseAST, 0);
 ```
 
-That's *three* AST sub-trees! What's going on here? As you can see, the
-IF statement will have three children:
+이 코드는 **세 개**의 AST 하위 트리를 사용한다. 여기서 무슨 일이 일어나고 있는 걸까? 보다시피, IF 문은 세 개의 자식 노드를 가진다:
 
-  + the sub-tree that evaluates the condition
-  + the compound statement immediately following
-  + the optional compound statement after the 'else' keyword
+  + 조건을 평가하는 하위 트리
+  + 바로 뒤따르는 복합문
+  + 'else' 키워드 뒤에 오는 선택적 복합문
 
-So we now need an AST node structure with three children (in `defs.h`):
+따라서 이제 세 개의 자식 노드를 가진 AST 노드 구조가 필요하다 (`defs.h` 파일에 정의됨):
 
 ```c
-// AST node types.
+// AST 노드 타입
 enum {
   ...
   A_GLUE, A_IF
 };
 
-// Abstract Syntax Tree structure
+// 추상 구문 트리 구조
 struct ASTnode {
-  int op;                       // "Operation" to be performed on this tree
-  struct ASTnode *left;         // Left, middle and right child trees
+  int op;                       // 이 트리에서 수행할 "연산"
+  struct ASTnode *left;         // 왼쪽, 중간, 오른쪽 자식 트리
   struct ASTnode *mid;
   struct ASTnode *right;
   union {
-    int intvalue;               // For A_INTLIT, the integer value
-    int id;                     // For A_IDENT, the symbol slot number
+    int intvalue;               // A_INTLIT 타입일 때 정수 값
+    int id;                     // A_IDENT 타입일 때 심볼 슬롯 번호
   } v;
 };
 ```
 
-Thus, an A_IF tree looks like this:
+따라서 A_IF 트리는 다음과 같은 구조를 가진다:
 
 ```
                       IF
@@ -337,21 +310,21 @@ Thus, an A_IF tree looks like this:
       condition   statements   statements
 ```
 
-## Glue AST Nodes
+이 구조는 IF 문의 조건, 참일 때 실행할 문장, 거짓일 때 실행할 문장을 각각의 자식 노드로 표현한다. 이렇게 하면 IF 문의 동작을 명확히 트리 구조로 나타낼 수 있다.
 
-There is also a new A_GLUE AST node type. What is this used for? We now
-build a single AST tree with lots of statements, so we need a way to
-glue them together.
 
-Review the end of the `compound_statement()` loop code:
+## AST 노드 연결하기
+
+새로운 A_GLUE AST 노드 타입이 추가되었다. 이 노드는 어떤 용도로 사용될까? 이제 우리는 여러 문장을 포함한 단일 AST 트리를 구성해야 하므로, 이들을 연결할 방법이 필요하다.
+
+`compound_statement()` 루프 코드의 끝 부분을 살펴보자:
 
 ```c
       if (left != NULL)
         left = mkastnode(A_GLUE, left, NULL, tree, 0);
 ```
 
-Each time we get a new sub-tree, we glue it on to the existing tree. So,
-for this sequence of statements:
+새로운 서브 트리를 얻을 때마다 기존 트리에 연결한다. 따라서 다음과 같은 문장 시퀀스가 있다고 가정해 보자:
 
 ```
     stmt1;
@@ -360,7 +333,7 @@ for this sequence of statements:
     stmt4;
 ```
 
-we end up with:
+최종적으로 다음과 같은 트리가 생성된다:
 
 ```
              A_GLUE
@@ -372,42 +345,36 @@ we end up with:
       stmt1  stmt2
 ```
 
-And, as we traverse the tree depth-first left to right, this still
-generates the assembly code in the correct order.
+이 트리를 왼쪽에서 오른쪽으로 깊이 우선 탐색하면, 여전히 올바른 순서로 어셈블리 코드가 생성된다.
 
-## The Generic Code Generator
 
-Now that our AST nodes have multiple children, our generic code generator
-is going to become a bit more complicated. Also, for the comparison
-operators, we need to know if we are doing the compare as part of an IF
-statement (jump on the opposite comparison) or a normal expression
-(set register to 1 or 0 on the normal comparison).
+## 범용 코드 생성기
 
-To this end, I've modified `getAST()` so that we can pass in the
-parent AST nodes operation:
+이제 AST 노드가 여러 자식 노드를 가지게 되면서, 범용 코드 생성기가 조금 더 복잡해진다. 또한 비교 연산자의 경우, IF 문의 일부로 비교를 수행하는지(반대 비교 시 점프), 아니면 일반 표현식의 일부로 비교를 수행하는지(일반 비교 시 레지스터를 1 또는 0으로 설정)를 알아야 한다.
+
+이를 위해 `getAST()`를 수정하여 부모 AST 노드의 연산을 전달할 수 있게 했다:
 
 ```c
-// Given an AST, the register (if any) that holds
-// the previous rvalue, and the AST op of the parent,
-// generate assembly code recursively.
-// Return the register id with the tree's final value
+// AST, 이전 rvalue를 보유하는 레지스터(있는 경우), 부모의 AST 연산을 받아
+// 재귀적으로 어셈블리 코드를 생성한다.
+// 트리의 최종 값을 가진 레지스터 ID를 반환한다
 int genAST(struct ASTnode *n, int reg, int parentASTop) {
    ...
 }
 ```
 
-### Dealing with Specific AST Nodes
 
-The code in `genAST()` now has to deal with specific AST nodes:
+### 특정 AST 노드 처리하기
+
+`genAST()` 함수는 이제 특정 AST 노드를 처리해야 한다:
 
 ```c
-  // We now have specific AST node handling at the top
+  // 이제 상단에서 특정 AST 노드를 처리한다
   switch (n->op) {
     case A_IF:
       return (genIFAST(n));
     case A_GLUE:
-      // Do each child statement, and free the
-      // registers after each child
+      // 각 자식 문장을 실행하고, 각 자식 이후에 레지스터를 해제한다
       genAST(n->left, NOREG, n->op);
       genfreeregs();
       genAST(n->right, NOREG, n->op);
@@ -416,8 +383,7 @@ The code in `genAST()` now has to deal with specific AST nodes:
   }
 ```
 
-If we don't return, we carry on to do the normal binary operator AST nodes,
-with one exception: the comparison nodes:
+리턴하지 않으면 일반적인 이항 연산자 AST 노드를 처리한다. 단, 비교 노드는 예외다:
 
 ```c
     case A_EQ:
@@ -426,65 +392,58 @@ with one exception: the comparison nodes:
     case A_GT:
     case A_LE:
     case A_GE:
-      // If the parent AST node is an A_IF, generate a compare
-      // followed by a jump. Otherwise, compare registers and
-      // set one to 1 or 0 based on the comparison.
+      // 부모 AST 노드가 A_IF인 경우, 비교 후 점프를 생성한다.
+      // 그렇지 않으면 레지스터를 비교하고, 비교 결과에 따라 하나를 1 또는 0으로 설정한다.
       if (parentASTop == A_IF)
         return (cgcompare_and_jump(n->op, leftreg, rightreg, reg));
       else
         return (cgcompare_and_set(n->op, leftreg, rightreg));
 ```
 
-I'll cover the new functions `cgcompare_and_jump()` and
-`cgcompare_and_set()` below.
+새로운 함수 `cgcompare_and_jump()`와 `cgcompare_and_set()`에 대해서는 아래에서 설명한다.
 
-### Generating the IF Assembly Code
 
-We deal with the A_IF AST node with a specific function, along with
-a function to generate new label numbers:
+### IF 어셈블리 코드 생성
+
+
+A_IF AST 노드를 처리하기 위해 특정 함수를 사용하고, 새로운 레이블 번호를 생성하는 함수를 함께 사용한다:
 
 ```c
-// Generate and return a new label number
+// 새로운 레이블 번호를 생성하고 반환
 static int label(void) {
   static int id = 1;
   return (id++);
 }
 
-// Generate the code for an IF statement
-// and an optional ELSE clause
+// IF 문과 선택적 ELSE 절에 대한 코드 생성
 static int genIFAST(struct ASTnode *n) {
   int Lfalse, Lend;
 
-  // Generate two labels: one for the
-  // false compound statement, and one
-  // for the end of the overall IF statement.
-  // When there is no ELSE clause, Lfalse _is_
-  // the ending label!
+  // 두 개의 레이블 생성: 하나는 거짓 조건문을 위한 레이블,
+  // 다른 하나는 전체 IF 문의 끝을 위한 레이블.
+  // ELSE 절이 없을 경우, Lfalse가 바로 끝 레이블이 된다!
   Lfalse = label();
   if (n->right)
     Lend = label();
 
-  // Generate the condition code followed
-  // by a zero jump to the false label.
-  // We cheat by sending the Lfalse label as a register.
+  // 조건 코드를 생성한 후, 거짓 레이블로 점프하는 명령어 추가.
+  // Lfalse 레이블을 레지스터로 전달하는 방식으로 처리.
   genAST(n->left, Lfalse, n->op);
   genfreeregs();
 
-  // Generate the true compound statement
+  // 참 조건문에 대한 코드 생성
   genAST(n->mid, NOREG, n->op);
   genfreeregs();
 
-  // If there is an optional ELSE clause,
-  // generate the jump to skip to the end
+  // 선택적 ELSE 절이 있다면, 끝으로 점프하는 명령어 추가
   if (n->right)
     cgjump(Lend);
 
-  // Now the false label
+  // 거짓 레이블 추가
   cglabel(Lfalse);
 
-  // Optional ELSE clause: generate the
-  // false compound statement and the
-  // end label
+  // 선택적 ELSE 절: 거짓 조건문에 대한 코드 생성 후
+  // 끝 레이블 추가
   if (n->right) {
     genAST(n->right, NOREG, n->op);
     genfreeregs();
@@ -495,36 +454,34 @@ static int genIFAST(struct ASTnode *n) {
 }
 ```
 
-Effectively, the code is doing:
+이 코드는 다음과 같은 동작을 수행한다:
 
 ```c
-  genAST(n->left, Lfalse, n->op);       // Condition and jump to Lfalse
-  genAST(n->mid, NOREG, n->op);         // Statements after 'if'
-  cgjump(Lend);                         // Jump to Lend
-  cglabel(Lfalse);                      // Lfalse: label
-  genAST(n->right, NOREG, n->op);       // Statements after 'else'
-  cglabel(Lend);                        // Lend: label
+  genAST(n->left, Lfalse, n->op);       // 조건 및 Lfalse로 점프
+  genAST(n->mid, NOREG, n->op);         // 'if' 이후의 문장
+  cgjump(Lend);                         // Lend로 점프
+  cglabel(Lfalse);                      // Lfalse: 레이블
+  genAST(n->right, NOREG, n->op);       // 'else' 이후의 문장
+  cglabel(Lend);                        // Lend: 레이블
 ```
 
-## The x86-64 Code Generation Functions
 
-So we now have a few new x86-64 code generation functions. Some of
-these replace the six `cgXXX()` comparison functions we created in the
-last part of the journey.
+## x86-64 코드 생성 함수
 
-For the normal comparison functions, we now pass in the AST operation
-to choose the relevant x86-64 `set` instruction:
+이제 몇 가지 새로운 x86-64 코드 생성 함수를 살펴보자. 이 함수들은 이전에 작성한 여섯 개의 `cgXXX()` 비교 함수를 대체한다.
+
+일반적인 비교 함수의 경우, AST 연산을 전달하여 해당하는 x86-64 `set` 명령어를 선택한다:
 
 ```c
-// List of comparison instructions,
-// in AST order: A_EQ, A_NE, A_LT, A_GT, A_LE, A_GE
+// 비교 명령어 목록
+// AST 순서: A_EQ, A_NE, A_LT, A_GT, A_LE, A_GE
 static char *cmplist[] =
   { "sete", "setne", "setl", "setg", "setle", "setge" };
 
-// Compare two registers and set if true.
+// 두 레지스터를 비교하고 조건이 참이면 설정
 int cgcompare_and_set(int ASTop, int r1, int r2) {
 
-  // Check the range of the AST operation
+  // AST 연산의 범위를 확인
   if (ASTop < A_EQ || ASTop > A_GE)
     fatal("Bad ASTop in cgcompare_and_set()");
 
@@ -536,37 +493,33 @@ int cgcompare_and_set(int ASTop, int r1, int r2) {
 }
 ```
 
-I've also found an x86-64 instruction `movzbq` that moves the lowest byte from
-one register and extends it to fit into a 64-bit register. I'm using that now
-instead of the `and $255` in the old code.
+또한 x86-64 명령어 `movzbq`를 발견했다. 이 명령어는 한 레지스터의 최하위 바이트를 가져와 64비트 레지스터에 맞게 확장한다. 이제 이전 코드의 `and $255` 대신 이 명령어를 사용한다.
 
-We need a functions to generate a label and to jump to it:
+레이블을 생성하고 해당 레이블로 점프하는 함수도 필요하다:
 
 ```c
-// Generate a label
+// 레이블 생성
 void cglabel(int l) {
   fprintf(Outfile, "L%d:\n", l);
 }
 
-// Generate a jump to a label
+// 레이블로 점프
 void cgjump(int l) {
   fprintf(Outfile, "\tjmp\tL%d\n", l);
 }
 ```
 
-Finally, we need a function to do a comparison and to jump based on
-the opposite comparison. So, using the AST comparison node type, we
-do the opposite comparison:
+마지막으로, 비교를 수행하고 반대 조건에 따라 점프하는 함수가 필요하다. AST 비교 노드 타입을 사용하여 반대 조건으로 점프한다:
 
 ```c
-// List of inverted jump instructions,
-// in AST order: A_EQ, A_NE, A_LT, A_GT, A_LE, A_GE
+// 반전된 점프 명령어 목록
+// AST 순서: A_EQ, A_NE, A_LT, A_GT, A_LE, A_GE
 static char *invcmplist[] = { "jne", "je", "jge", "jle", "jg", "jl" };
 
-// Compare two registers and jump if false.
+// 두 레지스터를 비교하고 조건이 거짓이면 점프
 int cgcompare_and_jump(int ASTop, int r1, int r2, int label) {
 
-  // Check the range of the AST operation
+  // AST 연산의 범위를 확인
   if (ASTop < A_EQ || ASTop > A_GE)
     fatal("Bad ASTop in cgcompare_and_set()");
 
@@ -577,9 +530,10 @@ int cgcompare_and_jump(int ASTop, int r1, int r2, int label) {
 }
 ```
 
-## Testing the IF Statements
 
-Do a `make test` which compiles the `input05` file:
+## IF 문 테스트
+
+`input05` 파일을 컴파일하기 위해 `make test`를 실행한다:
 
 ```c
 {
@@ -593,7 +547,7 @@ Do a `make test` which compiles the `input05` file:
 }
 ```
 
-Here's the resulting assembly output:
+결과로 생성된 어셈블리 출력은 다음과 같다:
 
 ```
         movq    $6, %r8
@@ -602,12 +556,12 @@ Here's the resulting assembly output:
         movq    %r8, j(%rip)    # j=12;
         movq    i(%rip), %r8
         movq    j(%rip), %r9
-        cmpq    %r9, %r8        # Compare %r8-%r9, i.e. i-j
-        jge     L1              # Jump to L1 if i >= j
+        cmpq    %r9, %r8        # %r8-%r9 비교, 즉 i-j
+        jge     L1              # i >= j이면 L1로 점프
         movq    i(%rip), %r8
         movq    %r8, %rdi       # print i;
         call    printint
-        jmp     L2              # Skip the else code
+        jmp     L2              # else 코드 건너뛰기
 L1:
         movq    j(%rip), %r8
         movq    %r8, %rdi       # print j;
@@ -615,7 +569,7 @@ L1:
 L2:
 ```
 
-And, of course, `make test` shows:
+그리고 `make test`의 결과는 다음과 같다:
 
 ```
 cc -o comp1 -g cg.c decl.c expr.c gen.c main.c misc.c
@@ -623,22 +577,18 @@ cc -o comp1 -g cg.c decl.c expr.c gen.c main.c misc.c
 ./comp1 input05
 cc -o out out.s
 ./out
-6                   # As 6 is less than 12
+6                   # 6이 12보다 작기 때문에
 ```
 
-## Conclusion and What's Next
 
-We've added our first control structure to our language with the IF statement. I had to
-rewrite a few existing things along the way and, given I don't have a complete
-architectural plan in my head, I'll likely have to rewrite more things in the future.
+## 결론 및 다음 단계
 
-The wrinkle for this part of the journey was that we had to perform the opposite
-comparison for the IF decision than what we would do for the normal comparison
-operators. My solution was to inform each AST node of the node type of their parent;
-the comparison nodes can now see if the parent is an A_IF node or not.
+우리는 IF 문을 통해 언어에 첫 번째 제어 구조를 추가했다. 이 과정에서 기존 코드 일부를 다시 작성해야 했고, 아직 완전한 아키텍처 계획이 없기 때문에 앞으로도 더 많은 부분을 수정해야 할 것이다.
 
-I know that Nils Holm chose a different approach when he was implementing SubC, so
-you should look at his code just to see this different solution to the same problem.
+이번 단계에서 주목할 점은 IF 문의 결정을 내리기 위해 일반 비교 연산자와 반대 방향으로 비교를 수행해야 한다는 것이다. 이를 해결하기 위해 각 AST 노드가 부모 노드의 타입을 알 수 있도록 했다. 이제 비교 노드는 부모가 A_IF 노드인지 아닌지를 확인할 수 있다.
 
-In the next part of our compiler writing journey, we will
-add another control structure: the WHILE loop. [Next step](../09_While_Loops/Readme.md)
+Nils Holm이 SubC를 구현할 때는 다른 접근 방식을 선택했다. 같은 문제에 대한 다른 해결책을 보기 위해 그의 코드를 살펴보는 것도 좋다.
+
+컴파일러 작성 여정의 다음 단계에서는 또 다른 제어 구조인 WHILE 루프를 추가할 것이다. [다음 단계](../09_While_Loops/Readme.md)
+
+

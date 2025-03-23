@@ -1,47 +1,31 @@
-# Part 44: Constant Folding
+# 파트 44: 상수 폴딩
 
-In the last part of our compiler writing journey, I realised that I'd
-have to add [constant folding](https://en.wikipedia.org/wiki/Constant_folding)
-as an optimisation, so that I could parse expressions as part of doing
-global variable declarations.
+컴파일러 개발 과정의 마지막 단계에서, 전역 변수 선언을 처리하면서 표현식을 파싱하기 위해 [상수 폴딩](https://en.wikipedia.org/wiki/Constant_folding) 최적화를 추가해야 한다는 것을 깨달았다.
 
-So, in this part, I've added the constant folding optimisation for
-general expressions and in the next part I'll rewrite the code for
-global variable declarations.
+따라서 이번 파트에서는 일반적인 표현식에 대한 상수 폴딩 최적화를 추가했다. 다음 파트에서는 전역 변수 선언을 위한 코드를 다시 작성할 예정이다.
 
-## What is Constant Folding?
 
-Constant folding is a form of optimisation where an expression can be
-evaluated by the compiler at compile time, instead of generating code
-to evaluate the expression at run time.
+## 상수 폴딩이란?
 
-For example, we can see that `x= 5 + 4 * 5;` is really the same as
-`x= 25;`, so we can let the compiler evaluate the expression and just output
-the assembly code for `x= 25;`.
+상수 폴딩은 컴파일러가 컴파일 시점에 표현식을 평가할 수 있는 최적화 기법이다. 런타임에 표현식을 평가하는 코드를 생성하는 대신, 컴파일러가 미리 계산을 수행한다.
 
-## So How Do We Do It?
+예를 들어, `x = 5 + 4 * 5;`는 실제로 `x = 25;`와 동일하다. 따라서 컴파일러가 이 표현식을 평가하도록 하고, `x = 25;`에 해당하는 어셈블리 코드만 생성하도록 할 수 있다.
 
-The answer is: look for sub-trees in an AST tree where the leaves are integer
-literals. If there is a binary operation which has two integer
-literals leaves, the compiler can evaluate the expression and replace the
-sub-tree with a single integer literal node.
 
-Similarly, if there is a unary operation with an integer literal leaf
-child, then the compiler can also evaluate the expression and replace the
-sub-tree with a single integer literal node.
+## 어떻게 해야 할까?
 
-Once we can do this for sub-trees, we can write a function to traverse the
-entire tree looking for sub-trees to fold. At any node, we can do this
-algorithm:
+답은 AST 트리에서 리프 노드가 정수 리터럴인 서브 트리를 찾는 것이다. 만약 두 개의 정수 리터럴 리프 노드를 가진 이항 연산이 있다면, 컴파일러는 해당 표현식을 평가하고 서브 트리를 단일 정수 리터럴 노드로 대체할 수 있다.
 
-  1. Try to fold and replace the left child, i.e. recursively.
-  1. Try to fold and replace the right child, i.e. recursively.
-  1. If it's a binary operation with two literals child leaves, fold that.
-  1. If it's a unary operation with one literal child leaf, fold that.
+마찬가지로, 정수 리터럴 리프 노드를 가진 단항 연산이 있다면, 컴파일러는 해당 표현식을 평가하고 서브 트리를 단일 정수 리터럴 노드로 대체할 수 있다.
 
-The fact that we replace the sub-trees means we recursively optimise the
-edges of the tree first, then work back up the tree to the root of the
-tree. An example:
+이렇게 서브 트리에 대해 작업할 수 있게 되면, 전체 트리를 순회하며 접을 수 있는 서브 트리를 찾는 함수를 작성할 수 있다. 어떤 노드에서든 다음과 같은 알고리즘을 적용할 수 있다:
+
+  1. 왼쪽 자식을 접고 대체해본다. 즉, 재귀적으로 수행한다.
+  1. 오른쪽 자식을 접고 대체해본다. 즉, 재귀적으로 수행한다.
+  1. 두 개의 리터럴 리프 노드를 가진 이항 연산이라면, 접어본다.
+  1. 하나의 리터럴 리프 노드를 가진 단항 연산이라면, 접어본다.
+
+서브 트리를 대체한다는 것은 트리의 가장자리부터 재귀적으로 최적화한 후, 점차 트리의 루트로 올라가며 작업한다는 의미다. 예를 들면 다음과 같다:
 
 ```
      *         *        *     50
@@ -51,51 +35,38 @@ tree. An example:
   6 4 8 3      8   3
 ```
 
-## A New File, `opt.c`
 
-I've created a new source file for our compiler, `opt.c` and in it I've
-rewritten the same three functions, `fold2()`, `fold1()` and `fold()`
-that are in the [SubC](http://www.t3x.org/subc/) compiler written by
-Nils M Holm.
+## 새로운 파일, `opt.c`
 
-One thing that Nils spends a lot of time in his code is to get the
-calculations correct. This is important when the compiler is a cross-compiler.
-For example, if we do the constant folding on a 64-bit machine, then the
-range we have for integer literals is much bigger than for 32-bit machines.
-Any constant folding we do on the 64-bit machine may not be the same
-result (due to lack of truncation) than the calculation of the same
-expression on a 32-bit machine.
+컴파일러를 위해 새로운 소스 파일인 `opt.c`를 생성했다. 이 파일에는 Nils M Holm이 작성한 [SubC](http://www.t3x.org/subc/) 컴파일러에 있는 `fold2()`, `fold1()`, `fold()` 함수를 동일하게 재작성했다.
 
-I know that this is an important concern, but I will stick with our
-"KISS principle" and write simple code for now. As required, I'll go
-back and fix it.
+Nils는 코드에서 계산이 정확하도록 많은 시간을 할애한다. 이는 컴파일러가 크로스 컴파일러일 때 특히 중요하다. 예를 들어, 64비트 머신에서 상수 폴딩을 수행하면 정수 리터럴의 범위가 32비트 머신보다 훨씬 크다. 64비트 머신에서 수행한 상수 폴딩 결과는 (잘림 없음으로 인해) 동일한 표현식을 32비트 머신에서 계산한 결과와 다를 수 있다.
 
-## Folding Binary Operations
+이 문제가 중요하다는 것을 알지만, 일단 "KISS 원칙"을 따르며 간단한 코드를 작성할 것이다. 필요할 때 다시 돌아가 수정할 예정이다.
 
-Here is the code to fold AST sub-trees which are binary operations on
-two children. I'm only folding a few operations; there are many more
-in `expr.c` that we could also fold.
+
+## 바이너리 연산 폴딩
+
+두 자식 노드에 대한 바이너리 연산을 수행하는 AST 서브 트리를 폴딩하는 코드다. 여기서는 몇 가지 연산만 폴딩하지만, `expr.c` 파일에는 더 많은 연산이 존재하며 이들도 폴딩할 수 있다.
 
 ```c
-// Fold an AST tree with a binary operator
-// and two A_INTLIT children. Return either 
-// the original tree or a new leaf node.
+// 바이너리 연산자를 가진 AST 트리를 폴딩한다.
+// 두 A_INTLIT 자식 노드를 가지고 있으며,
+// 원본 트리나 새로운 리프 노드를 반환한다.
 static struct ASTnode *fold2(struct ASTnode *n) {
   int val, leftval, rightval;
 
-  // Get the values from each child
+  // 각 자식 노드에서 값을 가져온다.
   leftval = n->left->a_intvalue;
   rightval = n->right->a_intvalue;
 ```
 
-Another function will call `fold2()` and this ensures that both `n->left`
-and `n->right` are non-NULL pointers to A_INTLIT leaf nodes. Now that we
-have the values from both children, we can get to work.
+다른 함수가 `fold2()`를 호출할 때, `n->left`와 `n->right`가 A_INTLIT 리프 노드를 가리키는 NULL이 아닌 포인터임을 보장한다. 이제 두 자식 노드의 값을 얻었으니 작업을 진행할 수 있다.
 
 ```c
-  // Perform some of the binary operations.
-  // For any AST op we can't do, return
-  // the original tree.
+  // 일부 바이너리 연산을 수행한다.
+  // 처리할 수 없는 AST 연산이 있다면
+  // 원본 트리를 반환한다.
   switch (n->op) {
     case A_ADD:
       val = leftval + rightval;
@@ -107,7 +78,7 @@ have the values from both children, we can get to work.
       val = leftval * rightval;
       break;
     case A_DIVIDE:
-      // Don't try to divide by zero.
+      // 0으로 나누려고 시도하지 않는다.
       if (rightval == 0)
         return (n);
       val = leftval / rightval;
@@ -117,37 +88,31 @@ have the values from both children, we can get to work.
   }
 ```
 
-We fold the normal four maths operations. Note the special code for
-division: if we try to divide by zero, the compiler will crash. Instead,
-we leave the sub-tree intact and let the code crash once it becomes
-an executable! Obviously, there is opportunity for a `fatal()` call here.
-We leave the switch statement with a single value `val` that represents
-the calculated value of the sub-tree. Time to replace the sub-tree.
+일반적인 네 가지 수학 연산을 폴딩한다. 나눗셈을 위한 특별한 코드를 주목하라: 0으로 나누려고 하면 컴파일러가 충돌할 것이다. 대신, 서브 트리를 그대로 두고 실행 파일이 된 후에 코드가 충돌하도록 한다. 당연히 여기에 `fatal()` 호출을 추가할 여지가 있다. 이제 `val`이라는 단일 값을 가지고 스위치 문을 빠져나온다. 이 값은 서브 트리의 계산된 값을 나타낸다. 이제 서브 트리를 교체할 차례다.
 
 ```c
-  // Return a leaf node with the new value
+  // 새로운 값을 가진 리프 노드를 반환한다.
   return (mkastleaf(A_INTLIT, n->type, NULL, val));
 }
 ```
 
-So a binary AST tree goes in, and a leaf AST node (hopefully) comes out.
+바이너리 AST 트리가 입력되면, 리프 AST 노드가 (바라건대) 출력된다.
 
-## Folding Unary Operations
 
-Now that you've seen folding on binary operations, the code for unary
-operations should be straight forward. I am only folding two unary
-operations, but there is room to add more.
+## 단항 연산의 폴딩
+
+이항 연산에 대한 폴딩을 살펴봤으니, 단항 연산에 대한 코드는 더 직관적일 것이다. 여기서는 두 가지 단항 연산만 폴딩하지만, 더 많은 연산을 추가할 여지가 있다.
 
 ```c
-// Fold an AST tree with a unary operator
-// and one INTLIT children. Return either 
-// the original tree or a new leaf node.
+// 단항 연산자를 가진 AST 트리를 폴딩하고
+// 하나의 INTLIT 자식 노드를 처리한다.
+// 원래 트리나 새로운 리프 노드를 반환한다.
 static struct ASTnode *fold1(struct ASTnode *n) {
   int val;
 
-  // Get the child value. Do the
-  // operation if recognised.
-  // Return the new leaf node.
+  // 자식 노드의 값을 가져온다.
+  // 인식된 연산을 수행한다.
+  // 새로운 리프 노드를 반환한다.
   val = n->left->a_intvalue;
   switch (n->op) {
     case A_WIDEN:
@@ -162,17 +127,12 @@ static struct ASTnode *fold1(struct ASTnode *n) {
       return (n);
   }
 
-  // Return a leaf node with the new value
+  // 새로운 값을 가진 리프 노드를 반환한다.
   return (mkastleaf(A_INTLIT, n->type, NULL, val));
 }
 ```
 
-There is one small wrinkle with implementing `fold1()` in our compiler,
-and that is we have AST nodes to widen values from one type to another.
-For example, in this expression `x= 3000 + 1;`, the '1' is parsed as
-a `char` literal. It needs to be widened to be of type `int` so that it
-can be added to the '3000'. The compiler without optimisation generates this
-AST tree:
+컴파일러에서 `fold1()`을 구현할 때 한 가지 주의할 점이 있다. 바로 한 타입에서 다른 타입으로 값을 확장하는 AST 노드를 다루는 것이다. 예를 들어, `x = 3000 + 1;`이라는 표현식에서 '1'은 `char` 리터럴로 파싱된다. 이 값을 '3000'과 더하기 위해 `int` 타입으로 확장해야 한다. 최적화를 하지 않은 컴파일러는 다음과 같은 AST 트리를 생성한다.
 
 ```
        A_ADD
@@ -183,86 +143,74 @@ AST tree:
                1
 ```
 
-What we do here is treat the A_WIDEN as a unary AST operation and copy the
-literal value from the child and return a leaf node with the widened type
-and with the literal value.
+여기서는 A_WIDEN을 단항 AST 연산으로 처리하고, 자식 노드에서 리터럴 값을 복사한 후 확장된 타입과 리터럴 값을 가진 리프 노드를 반환한다.
 
-## Recursively Folding a Whole AST Tree
 
-We have two functions to deal with the edges of the tree. Now we can
-code up the recursive function to optimise the edges and work from the
-edges back up to the root of the tree.
+## AST 트리 전체를 재귀적으로 접기
+
+트리의 가장자리를 처리하기 위해 두 가지 함수를 사용한다. 이제 가장자리를 최적화하고 가장자리에서 트리의 루트로 올라가며 작업을 수행하는 재귀 함수를 작성할 수 있다.
 
 ```c
-// Attempt to do constant folding on
-// the AST tree with the root node n
+// AST 트리의 루트 노드 n에 대해 상수 접기를 시도한다
 static struct ASTnode *fold(struct ASTnode *n) {
 
   if (n == NULL)
     return (NULL);
 
-  // Fold on the left child, then
-  // do the same on the right child
+  // 왼쪽 자식에 대해 접기를 수행한 후,
+  // 오른쪽 자식에 대해 동일한 작업을 수행한다
   n->left = fold(n->left);
   n->right = fold(n->right);
 
-  // If both children are A_INTLITs, do a fold2()
+  // 두 자식이 모두 A_INTLIT 타입이면 fold2()를 호출한다
   if (n->left && n->left->op == A_INTLIT) {
     if (n->right && n->right->op == A_INTLIT)
       n = fold2(n);
     else
-      // If only the left is A_INTLIT, do a fold1()
+      // 왼쪽 자식만 A_INTLIT 타입이면 fold1()을 호출한다
       n = fold1(n);
   }
 
-  // Return the possibly modified tree
+  // 수정된 트리를 반환한다
   return (n);
 }
 ```
 
-The first thing to do is return NULL on a NULL tree. This allows us to
-recursively call `fold()` on this node's children on the following two lines
-of code. We have just optimised the sub-trees below us.
+첫 번째로 할 일은 NULL 트리에 대해 NULL을 반환하는 것이다. 이렇게 하면 다음 두 줄의 코드에서 이 노드의 자식들에 대해 `fold()`를 재귀적으로 호출할 수 있다. 이제 우리는 아래쪽 서브 트리를 최적화했다.
 
-Now, for an AST node with two integer literal leaf children, call `fold2()`
-to optimise them away (if possible). And if we have only one
-integer literal leaf child, call `fold1()` to do the same to it.
+이제 두 개의 정수 리터럴 리프 자식을 가진 AST 노드에 대해 `fold2()`를 호출하여 가능한 경우 이들을 최적화한다. 그리고 하나의 정수 리터럴 리프 자식만 있다면 `fold1()`을 호출하여 동일한 작업을 수행한다.
 
-We either have trimmed the tree, or the tree is unchanged. Either way,
-we can now return it to the recursion level above us.
+트리를 다듬었거나 트리가 변경되지 않았다. 어느 쪽이든, 이제 이를 상위 재귀 레벨로 반환할 수 있다.
 
-## A Generic Optimisation Function
 
-Constant folding is only one optimisation we can do on our AST tree; there
-will be others later. Thus, it makes sense to write a front-end function
-that applies all the optimisations to the tree. Here it is with just
-constant folding:
+## 일반적인 최적화 함수
+
+상수 폴딩은 AST 트리에서 수행할 수 있는 여러 최적화 중 하나일 뿐이다. 앞으로 더 많은 최적화 기법을 추가할 예정이므로, 트리에 모든 최적화를 적용하는 프론트엔드 함수를 작성하는 것이 합리적이다. 현재는 상수 폴딩만 구현된 상태이다:
 
 ```c
-// Optimise an AST tree by
-// constant folding in all sub-trees
+// AST 트리를 최적화하기 위해
+// 모든 하위 트리에서 상수 폴딩을 수행
 struct ASTnode *optimise(struct ASTnode *n) {
   n = fold(n);
   return (n);
 }
 ```
 
-We can  extend it later. This gets called in `function_declaration()` in `decl.c`.
-Once we have parsed a function and its body, we put the A_FUNCTION node on the top of the tree, and:
+이 함수는 나중에 확장할 수 있다. 이 함수는 `decl.c` 파일의 `function_declaration()`에서 호출된다. 함수와 그 본문을 파싱한 후, A_FUNCTION 노드를 트리 최상단에 추가하고 다음과 같이 최적화를 수행한다:
 
 ```c
-  // Build the A_FUNCTION node which has the function's symbol pointer
-  // and the compound statement sub-tree
+  // 함수의 심볼 포인터와 복합문 하위 트리를 가진
+  // A_FUNCTION 노드를 생성
   tree = mkastunary(A_FUNCTION, type, tree, oldfuncsym, endlabel);
 
-  // Do optimisations on the AST tree
+  // AST 트리에 최적화를 적용
   tree= optimise(tree);
 ```
 
-## An Example Function
 
-The following program, `tests/input111.c`, should put the folding code
-through its paces.
+## 예제 함수
+
+다음 프로그램인 `tests/input111.c`는 폴딩 코드의 동작을 확인하는 데 사용된다.
 
 ```c
 #include <stdio.h>
@@ -273,8 +221,7 @@ int main() {
 }
 ```
 
-The compiler should replace the initialisation with `x=2029;`. Let's do
-a `cwj -T -S tests/input111.c` and see:
+컴파일러는 초기화 부분을 `x=2029;`로 대체해야 한다. `cwj -T -S tests/input111.c` 명령어를 실행해 보자:
 
 ```
 $ ./cwj -T -S z.c
@@ -288,14 +235,13 @@ $ ./tests/input111
 2029
 ```
 
-It seems to work, and the compiler still passes all 110 previous tests, so
-for now it does its job.
+프로그램이 정상적으로 동작하며, 컴파일러는 이전 110개의 테스트를 모두 통과한다. 따라서 현재로서는 이 코드가 제 역할을 수행하고 있다고 볼 수 있다.
 
-## Conclusion and What's Next
 
-I was going to leave optimisation to the end of our journey, but I think
-it's good to see one type of optimisation now.
+## 결론과 다음 단계
 
-In the next part of our compiler writing journey, we will replace our
-current global declaration parser with code that evaluates expressions
-using `binexpr()` and this new constant folding code. [Next step](../45_Globals_Again/Readme.md)
+최적화는 마지막에 다루려고 했지만, 이제 한 가지 유형의 최적화를 살펴보는 것이 좋을 것 같다.
+
+컴파일러 개발 과정의 다음 단계에서는 현재의 전역 선언 파서를 `binexpr()`를 사용해 표현식을 평가하고 새로운 상수 폴딩 코드를 적용하는 방식으로 교체할 것이다. [다음 단계](../45_Globals_Again/Readme.md)
+
+

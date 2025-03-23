@@ -1,109 +1,71 @@
-# Part 63: A QBE Backend
+# 63부: QBE 백엔드
 
-I left the last version of the compiler back at the end of 2019 with a
-plan on working on an improved register allocation scheme. Well, several
-things got in the road of that, including a personal tragedy in the
-middle of 2020.
+2019년 말, 나는 개선된 레지스터 할당 방식을 연구하기 위해 컴파일러의 마지막 버전을 남겨두었다. 하지만 2020년 중반의 개인적인 비극을 포함해 여러 가지 일이 그 계획을 방해했다.
 
-Just a few weeks ago (in mid-December 2021), I came across a project called
-[QBE](https://c9x.me/compile/) written by Quentin Carbonneaux.
-This tool describes an intermediate language which is eminently suitable for
-a compiler like mine to output. This intermediate language is then translated
-down to real assembly code. As well, QBE provides and performs:
+얼마 전인 2021년 12월 중순, 나는 Quentin Carbonneaux가 작성한 [QBE](https://c9x.me/compile/)라는 프로젝트를 발견했다. 이 도구는 내 컴파일러와 같은 도구가 출력하기에 적합한 중간 언어를 제공한다. 이 중간 언어는 실제 어셈블리 코드로 변환된다. 또한 QBE는 다음과 같은 기능을 제공하고 수행한다:
 
- * An SSA-based intermediate language
- * A linear register allocator with hinting
- * Copy elimination
- * Sparse conditional constant propagation
- * Dead instruction elimination
- * Registerization of small stack slots
- * Split spiller and register allocator thanks to the use of the SSA form
- * Smart spilling heuristic based on loop analysis
+ * SSA 기반 중간 언어
+ * 힌트가 포함된 선형 레지스터 할당기
+ * 복사 제거
+ * 희소 조건부 상수 전파
+ * 죽은 명령어 제거
+ * 작은 스택 슬롯의 레지스터화
+ * SSA 형식을 사용한 분할 스필러와 레지스터 할당기
+ * 루프 분석을 기반으로 한 스마트 스필링 휴리스틱
 
-Essentially, QBE performs many of the back-end register and code optimisations
-that a compiler should do. And, given that Quentin has already written the
-code, I decided to discard my existing x86-64 code generator and write a
-code generator that outputs the QBE intermediate language.
+기본적으로 QBE는 컴파일러가 수행해야 하는 여러 백엔드 레지스터 및 코드 최적화를 수행한다. 그리고 Quentin이 이미 이 코드를 작성했기 때문에, 나는 기존의 x86-64 코드 생성기를 버리고 QBE 중간 언어를 출력하는 코드 생성기를 작성하기로 결정했다.
 
-The result is this version of the `acwj` compiler. It still passes the
-triple test. However, the assembly code output using the QBE backend is
-about half the size as the assembly code output by version 62 of the
-compiler.
+그 결과가 바로 이 버전의 `acwj` 컴파일러다. 이 버전은 여전히 트리플 테스트를 통과한다. 그러나 QBE 백엔드를 사용해 출력한 어셈블리 코드는 버전 62 컴파일러가 출력한 어셈블리 코드의 약 절반 크기다.
 
-If you want to try this version of the `acwj` compiler out, then you need
-to download and compile [QBE](https://c9x.me/compile/), and install the
-`qbe` executable somewhere on your $PATH. The `acwj` compiler will output
-intermediate code to a file ending with the `.q` suffix. It then invokes
-`qbe` to translate this to assembly code, and then continues with the
-usual steps to assemble and link this resulting code.
+이 버전의 `acwj` 컴파일러를 시험해보고 싶다면, [QBE](https://c9x.me/compile/)를 다운로드하고 컴파일한 후, `qbe` 실행 파일을 $PATH에 설치해야 한다. `acwj` 컴파일러는 `.q` 접미사로 끝나는 파일에 중간 코드를 출력한다. 그런 다음 `qbe`를 호출해 이를 어셈블리 코드로 변환하고, 결과 코드를 어셈블하고 링크하는 일반적인 단계를 계속 진행한다.
 
-So, let's begin!
+그럼 시작해보자!
 
-## The QBE Intermediate Language
 
-Now, what I *really* would like to do is to explain to you how QBE
-implements the
-[static single assignment form](https://en.wikipedia.org/wiki/Static_single_assignment_form), register allocation, dead code elimination etc. However,
-I don't yet have a good grasp of these things myself. Perhaps someone
-could go through the QBE source code and explain how it works in the way
-that I've done with the `acwj` compiler.
+## QBE 중간 언어
 
-Instead, I'm going to do a bit of a walk-through on the intermediate
-language that QBE uses and explain how I'm targetting this language
-in `cg.c`, my new code generator.
+사실 제가 정말 하고 싶은 건 QBE가 어떻게 [정적 단일 할당(SSA)](https://en.wikipedia.org/wiki/Static_single_assignment_form)을 구현하는지, 레지스터 할당, 데드 코드 제거 등을 설명하는 것이다. 하지만 아직 제가 이 부분을 충분히 이해하지 못했다. 누군가가 QBE 소스 코드를 분석해서 제가 `acwj` 컴파일러를 설명한 방식과 비슷하게 동작 원리를 설명해 주면 좋겠다.
 
-## Temporary Locations, not Registers
+대신, QBE가 사용하는 중간 언어를 간단히 살펴보고, 제가 새로 만든 코드 생성기 `cg.c`에서 이 언어를 어떻게 타겟팅하고 있는지 설명하려 한다.
 
-The QBE intermediate language is an abstract language and not the
-assembly language of a real CPU. Therefore, it doesn't have to have
-the same limitations such as a fixed set of registers.
 
-Instead, there are an infinite number of *temporary* locations, each
-with its own name. Temporary locations which are globally visible
-start with the `$` character, and those which are visible only within
-a function start with the `%` character.
+## 임시 위치, 레지스터가 아님
 
-Temporary locations do not need to be defined in advance: they can
-be created on the fly. However, when created, each temporary location
-is defined to have one of several *types*. These types (and their
-suffixes) are:
+QBE 중간 언어는 실제 CPU의 어셈블리 언어가 아닌 추상적인 언어다. 따라서 고정된 레지스터 집합과 같은 제약을 가지지 않는다.
 
- * 8-bit bytes (*b*)
- * 16-bit halfwords (*h*)
- * 32-bit words (*w*)
- * 64-bit longs (*l*)
+대신, 무한한 수의 *임시* 위치가 있으며, 각각 고유한 이름을 가진다. 전역적으로 접근 가능한 임시 위치는 `$` 문자로 시작하고, 함수 내에서만 접근 가능한 임시 위치는 `%` 문자로 시작한다.
 
-QBE also provides **s**ingle precision floats, **d**ouble precision floats
-and a way to define aggregate types. I don't use these in `acwj`, so I
-won't discuss them. However, you can read about them in the
-[reference document for QBE's intermediate language](https://c9x.me/compile/doc/il.html).
+임시 위치는 미리 정의할 필요가 없다. 필요할 때 즉석에서 생성할 수 있다. 하지만 생성될 때, 각 임시 위치는 여러 *타입* 중 하나로 정의된다. 이러한 타입(과 그 접미사)은 다음과 같다:
 
-Local temporary variables can be created by performing the usual
-actions in an assembly language. Some examples are:
+ * 8비트 바이트 (*b*)
+ * 16비트 하프워드 (*h*)
+ * 32비트 워드 (*w*)
+ * 64비트 롱 (*l*)
+
+QBE는 또한 **s**ingle precision float, **d**ouble precision float, 그리고 집계 타입을 정의하는 방법도 제공한다. `acwj`에서는 이를 사용하지 않으므로 여기서는 다루지 않는다. 하지만 [QBE 중간 언어 참조 문서](https://c9x.me/compile/doc/il.html)에서 이에 대해 더 알아볼 수 있다.
+
+로컬 임시 변수는 어셈블리 언어에서 일반적으로 수행하는 작업을 통해 생성할 수 있다. 몇 가지 예를 들면 다음과 같다:
 
 ```
-  %b0 =w copy 5              # Create %b0 as a word temporary and
-                             # initialise it with the value 5
-  %fred =w add %c, %d        # Add two temporaries and store in the
-                             # %fred word temporary
-  %p =h call ntohs(h %foo)   # Call ntohs() with the value of the %foo
-                             # temporary and save the halfword result
-                             # in the %p temporary 
+  %b0 =w copy 5              # %b0을 워드 임시 변수로 생성하고
+                             # 값 5로 초기화
+  %fred =w add %c, %d        # 두 임시 변수를 더하고 그 결과를
+                             # %fred 워드 임시 변수에 저장
+  %p =h call ntohs(h %foo)   # %foo 임시 변수의 값을 인자로 ntohs()를 호출하고
+                             # 하프워드 결과를 %p 임시 변수에 저장
 ```
 
-## Mixing Types
 
-Each temporary has a type. This means that you do have to do some
-conversion between types. For example, you can't do this:
+## 타입 혼합
+
+각 임시 변수는 특정 타입을 가진다. 따라서 타입 간 변환을 해야 할 때가 있다. 예를 들어, 다음과 같은 코드는 작동하지 않는다:
 
 ```
   %x =w copy 5               # int x = 5;
   %y =l copy %x              # long y = x;
 ```
 
-When you want to widen a value from a smaller type to a larger type,
-you need to decide if the smaller type was *signed* or *unsigned*.
-Example:
+작은 타입의 값을 더 큰 타입으로 확장할 때는, 원래의 작은 타입이 *부호 있는(signed)* 타입인지 *부호 없는(unsigned)* 타입인지 결정해야 한다. 예를 들면:
 
 ```
   %x =w copy -5   # int x = -5;               32-bit value 0xfffffffb
@@ -111,12 +73,12 @@ Example:
   %z =l extuw %x  # long z = (unsigned) x;    0x00000000fffffffb
 ```
 
-On the other hand, you can store a wide value into a smaller temporary
-location; QBE simply truncates off the most significant bits.
+반대로, 넓은 타입의 값을 더 작은 임시 변수에 저장할 수 있다. 이 경우 QBE는 단순히 상위 비트를 잘라낸다.
 
-## Our First Example
 
-So here is a hand-translation of this C program:
+## 첫 번째 예제
+
+다음은 C 프로그램을 QBE 중간 언어로 직접 번역한 예제다:
 
 ```c
 #include <stdio.h>
@@ -131,7 +93,7 @@ int main()
 }
 ```
 
-into the QBE intermediate language:
+이를 QBE 중간 언어로 변환한 결과는 다음과 같다:
 
 ```
 data $L19 = { b "%d %ld %d\n" }
@@ -145,26 +107,18 @@ export function w $main() {
 }
 ```
 
-There are some things which I haven't described yet. The string literal
-`"%d %ld %d\n"` is stored as a sequence of **b**ytes in a global temporary
-called `$L19`. Technically, `$L19` is the address of the first byte of
-the string.
+여기서 아직 설명하지 않은 몇 가지 사항이 있다. 문자열 리터럴 `"%d %ld %d\n"`은 전역 임시 변수 `$L19`에 바이트(b) 시퀀스로 저장된다. 기술적으로 `$L19`는 문자열의 첫 번째 바이트 주소를 가리킨다.
 
-`main()` is defined as a non-local function (hence the `$`) which returns
-a 32-bit **w**ord. The `export` keyword indicates that the function is
-visible outside this file.
+`main()`은 32비트 워드(w)를 반환하는 비지역 함수로 정의된다. `export` 키워드는 이 함수가 파일 외부에서도 접근 가능함을 나타낸다.
 
-The `@L20` is a label, just like a normal assembly label. QBE requires that
-each function has a starting label.
+`@L20`은 일반 어셈블리 라벨과 같은 역할을 한다. QBE는 모든 함수가 시작 라벨을 가져야 한다는 규칙을 갖는다.
 
-Finally, the `ret` operation returns from the function. There can only be
-one `ret` operation in any function. It must be the last line in the
-function, and any value that it is given must match the function's type.
+마지막으로 `ret` 연산은 함수에서 반환한다. 함수 내에 `ret` 연산은 오직 하나만 존재할 수 있으며, 반드시 함수의 마지막 줄이어야 한다. 또한 반환하는 값은 함수의 타입과 일치해야 한다.
 
-## acwj's QBE Output
 
-Now let's look at how `acwj` compiles the above C program down to the QBE
-intermediate language:
+## acwj의 QBE 출력 분석
+
+이제 `acwj`가 위의 C 프로그램을 QBE 중간 언어로 어떻게 컴파일하는지 살펴보자.
 
 ```
 export function w $main() {
@@ -178,57 +132,46 @@ export function w $main() {
   %.t5 =w copy %.t4
   %z =w copy %.t5               # z = (int) y;
   %.t6 =w copy %z
-  %.t7 =l copy %y               # Put the arguments into "registers"
+  %.t7 =l copy %y               # 인자를 "레지스터"에 넣음
   %.t8 =w copy %x
-  %.t9 =l copy $L19             # Call pritnf(), get result back
+  %.t9 =l copy $L19             # printf() 호출, 결과 반환
   %.t10 =w call $printf(l %.t9, w %.t8, l %.t7, w %.t6, )
   %.t11 =w copy 0
-  %.ret =w copy %.t11           # Set the return value to 0
+  %.ret =w copy %.t11           # 반환 값을 0으로 설정
   jmp @L18
 @L18
   ret %.ret
 }
 ```
 
-Pretty suboptimal, huh?! `acwj` still believes that variables like `x`
-and `y` live in memory and that "registers" have to be used to move
-data between the variables. I'm using temporary names starting with
-".t" so there won't be any conflict with actual C variable names.
+상당히 비효율적이다! `acwj`는 여전히 `x`와 `y` 같은 변수가 메모리에 있다고 생각하며, 변수 간 데이터를 이동시키기 위해 "레지스터"를 사용해야 한다고 간주한다. 실제 C 변수 이름과 충돌하지 않도록 ".t"로 시작하는 임시 이름을 사용했다.
 
-The `return(0)` gets translated into code that copies the value into
-the `%.ret` temporary and then jumps to the last line in
-the function. Obviously, that jump is not required here.
+`return(0)`은 `%.ret` 임시 변수에 값을 복사한 후 함수의 마지막 줄로 점프하는 코드로 변환된다. 이 경우 점프는 불필요하다.
 
-So, overall, the code that `acwj` outputs is pretty inefficient. That's
-why I had wanted to add some optimisations to `acwj`. The nice thing, now,
-is that QBE does a great job at dead code elimination and code optimisation.
-Here is the x86-64 translation that QBE performs on the above intermediate
-code:
+전반적으로 `acwj`가 출력한 코드는 매우 비효율적이다. 그래서 `acwj`에 최적화 기능을 추가하려고 했던 것이다. 다행히 QBE는 데드 코드 제거와 코드 최적화를 훌륭하게 수행한다. 다음은 QBE가 위의 중간 코드를 x86-64로 변환한 결과다.
 
 ```asm
 .text
 .globl main
 main:
         pushq %rbp
-        movq %rsp, %rbp                 # Set up the frame & stack pointers
-        movl $5, %ecx                   # Copy 5 into three arguments
+        movq %rsp, %rbp                 # 프레임 및 스택 포인터 설정
+        movl $5, %ecx                   # 5를 세 개의 인자로 복사
         movl $5, %edx
         movl $5, %esi
-        leaq L19(%rip), %rdi            # Load the address of the string
-        callq printf                    # Call printf()
-        movl $0, %eax                   # Set the main() return value
+        leaq L19(%rip), %rdi            # 문자열 주소 로드
+        callq printf                    # printf() 호출
+        movl $0, %eax                   # main() 반환 값 설정
         leave
-        ret                             # and return from main()
+        ret                             # main()에서 반환
 ```
 
-Lovely. Everything is stored in registers and there's no use of the stack
-for any of the local variables.
+훌륭하다. 모든 것이 레지스터에 저장되며, 로컬 변수를 위해 스택을 사용하지 않는다.
 
-## Locals with Addresses
 
-QBE does a great job of keeping as much data in registers as possible. But
-there are times when this is not possible. Consider when we need to get the
-address of a variable, e.g.
+## 주소가 있는 로컬 변수
+
+QBE는 가능한 한 많은 데이터를 레지스터에 보관하려고 노력한다. 하지만 때로는 이것이 불가능한 경우가 있다. 예를 들어, 변수의 주소를 가져와야 할 때가 그렇다.
 
 ```c
 int main()
@@ -240,20 +183,18 @@ int main()
 }
 ```
 
-The `x` variable definitely needs to be stored in memory so that we can
-obtain the address to store in `p`. To do this, we use the QBE operations
-that allocate and access memory:
+이 경우 `x` 변수는 반드시 메모리에 저장되어야 한다. 그래야 `p`에 저장할 주소를 얻을 수 있다. 이를 위해 QBE에서는 메모리를 할당하고 접근하는 연산을 사용한다.
 
 ```
 export function w $main() {
 @L20
-  %x =l alloc8 1                # Allocate 8 bytes for x
+  %x =l alloc8 1                # x를 위해 8바이트 할당
   %.t1 =w copy 5
-  storew %.t1, %x               # Store 5 as a 32-bit value in x
-  %.t2 =l copy %x               # Get the address of x
+  storew %.t1, %x               # x에 5를 32비트 값으로 저장
+  %.t2 =l copy %x               # x의 주소를 가져옴
   %p =l copy %.t2
   %.t3 =l copy %p
-  %.t5 =w loadsw %x             # Get the 32-bit value at x
+  %.t5 =w loadsw %x             # x의 32비트 값을 가져옴
   %.t6 =l copy $L19
   %.t7 =w call $printf(l %.t6, w %.t5, l %.t3)
   %.t8 =w copy 0
@@ -264,36 +205,31 @@ export function w $main() {
 }
 ```
 
-`%x` is now treated as a pointer to eight bytes on the stack. I chose
-to allocate in groups of eight bytes as this helps to keep
-8-byte longs and pointers correctly aligned. We now need to use the
-`store` and `load` operations to write to and read from the memory
-locations that `%x` points to.
+이제 `%x`는 스택에 있는 8바이트를 가리키는 포인터로 처리된다. 8바이트 단위로 할당하면 8바이트 long과 포인터가 올바르게 정렬된다. 이제 `%x`가 가리키는 메모리 위치에 쓰고 읽으려면 `store`와 `load` 연산을 사용해야 한다.
 
-The above intermediate code gets translated by QBE to:
+위의 중간 코드는 QBE에 의해 다음과 같이 번역된다.
 
 ```
 main:
         pushq %rbp
         movq %rsp, %rbp
-        subq $16, %rsp                  # Make space on the stack
-        movl $5, -8(%rbp)               # Store 5 on the stack as x
-        leaq -8(%rbp), %rdx             # Get the address of x
-        movl $5, %esi                   # Optimisation: use literal 5
-        leaq L19(%rip), %rdi            # instead of accessing the stack
+        subq $16, %rsp                  # 스택에 공간 확보
+        movl $5, -8(%rbp)               # 스택에 x로 5를 저장
+        leaq -8(%rbp), %rdx             # x의 주소를 가져옴
+        movl $5, %esi                   # 최적화: 스택 접근 대신 리터럴 5 사용
+        leaq L19(%rip), %rdi            # 
         callq printf
         movl $0, %eax
         leave
         ret
 ```
 
-And that's a pretty optimal translation of `acwj`'s intermediate language!
+이것은 `acwj`의 중간 언어를 매우 최적화된 방식으로 번역한 결과다!
 
-## QBE and chars
 
-QBE doesn't treat 8-bit bytes or 16-bit halfwords as primary types: there
-are no byte or halfword temporary locations. Instead, these have to be
-stored on the stack or on the heap. So, `acwj` compiles this C code:
+## QBE와 문자 처리
+
+QBE는 8비트 바이트나 16비트 하프워드를 기본 타입으로 취급하지 않는다. 바이트나 하프워드를 위한 임시 저장 공간이 따로 존재하지 않는다. 대신 이들은 스택이나 힙에 저장해야 한다. 따라서 `acwj`는 다음과 같은 C 코드를 컴파일한다:
 
 ```c
 int main()
@@ -304,36 +240,36 @@ int main()
 }
 ```
 
-to:
+이 코드는 다음과 같이 변환된다:
 
 ```
 export function w $main() {
 @L20
-  %x =l alloc4 1                        # Allocate 4 bytes on the stack
+  %x =l alloc4 1                        # 스택에 4바이트 할당
   %.t1 =w copy 65
-  storew %.t1, %x                       # Store 65 as a 16-bit word
-  %.t2 =w loadub %x                     # Reload it as an 8-bit unsigned byte
+  storew %.t1, %x                       # 65를 16비트 워드로 저장
+  %.t2 =w loadub %x                     # 8비트 부호 없는 바이트로 다시 로드
   ...
 }
 ```
 
-# Comparisons and Conditional Jumps
 
-QBE has instructions to compare two temporaries and set a third temporary
-to 1 if the comparison is true, 0 otherwise. The instructions are:
+# 비교와 조건부 점프
 
- * `ceq` for equality
- * `cne` for inequality
- * `csle` for signed lower or equal
- * `cslt` for signed lower
- * `csge` for signed greater or equal
- * `csgt` for signed greater
- * `cule` for unsigned lower or equal
- * `cult` for unsigned lower
- * `cuge` for unsigned greater or equal
- * `cugt` for unsigned greater 
+QBE는 두 개의 임시 값을 비교하고, 비교 결과가 참이면 세 번째 임시 값을 1로, 거짓이면 0으로 설정하는 명령어를 제공한다. 이 명령어들은 다음과 같다:
 
-followed by the type letter of the two arguments. So, the C code:
+ * `ceq`: 동등 비교
+ * `cne`: 부등 비교
+ * `csle`: 부호 있는 작거나 같음
+ * `cslt`: 부호 있는 작음
+ * `csge`: 부호 있는 크거나 같음
+ * `csgt`: 부호 있는 큼
+ * `cule`: 부호 없는 작거나 같음
+ * `cult`: 부호 없는 작음
+ * `cuge`: 부호 없는 크거나 같음
+ * `cugt`: 부호 없는 큼
+
+이 명령어들은 두 인자의 타입 문자를 따라온다. 예를 들어, 다음 C 코드를 보자:
 
 ```c
   int x= 5;
@@ -341,7 +277,7 @@ followed by the type letter of the two arguments. So, the C code:
   int z= x>y;
 ```
 
-can be compiled down to the intermediate code:
+이 코드는 다음과 같은 중간 코드로 컴파일될 수 있다:
 
 ```
   %x =w copy 5
@@ -349,11 +285,9 @@ can be compiled down to the intermediate code:
   %z =w csgtw %x, %y
 ```
 
-QBE has only one conditional jump instruction: `jnz`. When the named temporary
-location is non-zero, `jnz` jumps to the first label. Otherwise it jumps to
-the second label. There has to be two labels for `jnz`.
+QBE에는 조건부 점프 명령어인 `jnz`가 하나만 있다. `jnz`는 지정된 임시 위치의 값이 0이 아니면 첫 번째 레이블로 점프하고, 그렇지 않으면 두 번째 레이블로 점프한다. `jnz`는 반드시 두 개의 레이블을 필요로 한다.
 
-Using this, we can translate this C code:
+이를 활용해 다음과 같은 C 코드를 번역할 수 있다:
 
 ```c
   if (5>6)
@@ -362,30 +296,27 @@ Using this, we can translate this C code:
     z= 200;
 ```
 
-to:
+위 코드는 다음과 같이 변환된다:
 
 ```
 @L19
-  %.t1 =w csgtw 5, 6            # Compare 5>6, store result in %.t1
-  jnz %.t1, @Ltrue, @Lfalse     # Jump to @Ltrue if true, @Lfalse otherwise
+  %.t1 =w csgtw 5, 6            # 5>6을 비교하고 결과를 %.t1에 저장
+  jnz %.t1, @Ltrue, @Lfalse     # 참이면 @Ltrue로, 거짓이면 @Lfalse로 점프
 @Ltrue
-  %z =w copy 100                # Set z to 100 and skip using the
-  jmp @L18                      # absolute jump instruction, jmp
+  %z =w copy 100                # z를 100으로 설정하고
+  jmp @L18                      # 절대 점프 명령어인 jmp를 사용해 건너뛴다
 @Lfalse
-  %z =w copy 200                # Set z to 200
+  %z =w copy 200                # z를 200으로 설정
 @L18
   ...
 ```
 
-Using the comparison instructions and `jnz`, we can implement IF, FOR and
-WHILE constructs.
+이 비교 명령어들과 `jnz`를 사용해 IF, FOR, WHILE 구문을 구현할 수 있다.
 
-## Structs and Arrays
 
-These are pretty straightforward. To access
-a field in a struct, take the base address and add on the offset of
-the field. For arrays elements, we need to scale the
-element's index by the size of each element. So this C code:
+## 구조체와 배열
+
+구조체와 배열은 상당히 직관적이다. 구조체의 필드에 접근하려면 베이스 주소에 해당 필드의 오프셋을 더한다. 배열의 요소에 접근하려면 요소의 인덱스에 각 요소의 크기를 곱한다. 다음 C 코드를 보자:
 
 ```c
 struct foo {
@@ -399,35 +330,30 @@ int main() {
 }
 ```
 
-is compiled by `acwj` to:
+이 코드는 `acwj`에 의해 다음과 같이 컴파일된다:
 
 ```
 export data $x = align 8 { l 0 }
 export function w $main() {
 @L19
   %.t1 =w copy 45
-  %.t2 =l copy $x               # Get the base address of x
+  %.t2 =l copy $x               # x의 베이스 주소를 가져온다
   %.t3 =l copy 4                
-  %.t2 =l add %.t2, %.t3        # Add 4 to it
-  storew %.t1, %.t2             # Store 45 at this address
+  %.t2 =l add %.t2, %.t3        # 베이스 주소에 4를 더한다
+  storew %.t1, %.t2             # 이 주소에 45를 저장한다
   ...
 }
 ```
 
-## Comparing the Old and QBE Code Sizes
 
-QBE provides an easier target for the compiler writer than the
-underlying machine's assembly code. QBE also optimises the assembly
-code that it creates from the intermediate language. And QBE
-has at least two machine targets: x86-64 and ARM-64, which makes the
-front-end compiler a portable one.
+## 이전 코드와 QBE 코드 크기 비교
 
-Let's use the old and new `acwj` compilers to compile each C file in
-the compiler itself. We can then compare the code size in bytes that gets
-produced by each version:
+QBE는 컴파일러 개발자에게 기계어 어셈블리 코드보다 더 쉬운 타겟을 제공한다. QBE는 중간 언어에서 생성된 어셈블리 코드를 최적화한다. 또한 QBE는 최소한 두 가지 머신 타겟(x86-64와 ARM-64)을 지원하므로 프론트엔드 컴파일러를 이식 가능하게 만든다.
+
+이전 `acwj` 컴파일러와 새로운 버전을 사용해 컴파일러 자체의 각 C 파일을 컴파일해 보자. 그런 다음 각 버전에서 생성된 코드 크기(바이트 단위)를 비교할 수 있다:
 
 ```
-Version 62   QBE      File
+버전 62   QBE      파일
 -----------------------------
   18079     6961      cg.o
   14200     7440      decl.o
@@ -444,26 +370,20 @@ Version 62   QBE      File
  106964    44257      Self-compiled cwj binary
 ```
 
-## Summary
 
-I'm very glad that I actually targetted a real machine when I wrote
-`acwj` because it forced me to cover such topics as register allocation,
-argument passing to functions, alignment of values etc. But the quality
-of assembly code that `acwj` produced was pretty terrible.
+## 요약
 
-And now, I'm glad that I found a way to produce high-quality assembly
-output by using the
-[QBE intermediate language](https://c9x.me/compile/doc/il.html)
-for the front-end of the compiler.
+`acwj`를 작성할 때 실제 머신을 타겟으로 한 것은 매우 잘한 결정이었다. 이 과정에서 레지스터 할당, 함수에 인자 전달, 값 정렬 등 다양한 주제를 다뤄야 했기 때문이다. 하지만 `acwj`가 생성한 어셈블리 코드의 품질은 상당히 낮았다.
 
-## What's Next
+이제는 [QBE 중간 언어](https://c9x.me/compile/doc/il.html)를 컴파일러 프론트엔드로 사용해 고품질의 어셈블리 출력을 생성하는 방법을 찾게 되어 기쁘다.
 
-I don't know if there's a next after this. The compiler passes all
-the tests, it compiles itself, and the code that it produces is now
-pretty good.
 
-I would like to learn about the concepts that QBE embodies, e.g.
-SSA and register allocation. So, perhaps I'll go off and do some
-research and write that up.
+## 다음 단계
 
-[Next step](../64_6809_Target/Readme.md)
+이제 더 진행할 내용이 있는지 잘 모르겠다. 컴파일러는 모든 테스트를 통과하고, 스스로를 컴파일하며, 생성하는 코드도 이제 꽤 괜찮은 수준이다.
+
+QBE가 구현하고 있는 개념들, 예를 들어 SSA와 레지스터 할당에 대해 더 배우고 싶다. 그래서 관련 자료를 찾아보고 정리해 볼 생각이다.
+
+[다음 단계](../64_6809_Target/Readme.md)
+
+
